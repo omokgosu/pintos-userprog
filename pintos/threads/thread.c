@@ -344,6 +344,28 @@ thread_yield (void) {
 }
 
 /* 
+사용하는 이유
+- idle_thread가 잘못 yield하지 않도록 보호
+- ready_list가 비어 있는 상황에서 불필요한 switch 방지
+- assert 실패 방지
+*/
+void thread_try_yield() {
+
+	enum intr_level old_level = intr_disable();
+
+	if (!list_empty(&ready_list) && thread_current ()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
+		if(intr_context()) {
+			intr_yield_on_return();
+		}
+		else {
+			thread_yield();
+		}
+	}
+
+	intr_set_level (old_level);
+}
+
+/* 
     project 1.1 alarm 을 위한 함수
     리스트를 ticks 기준으로 내림차순 정렬 insert 할 때 사용합니다.
     a는 방금 입력된 쓰레드, b는 기존에 리스트에 있던 쓰레드 입니다.

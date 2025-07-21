@@ -26,6 +26,8 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+static void init_stack_frame(struct intr_frame *if_, int idx, char ** argvs); // 필요하면 직접 구현
+
 
 /* initd와 다른 프로세스를 위한 일반적인 프로세스 초기화 함수. */
 static void
@@ -40,7 +42,7 @@ process_init (void) {
  * 주의: 이 함수는 한 번만 호출되어야 합니다. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
+	char *fn_copy, *tmp_ptr;
 	tid_t tid;
 
 	/* FILE_NAME의 복사본을 만듭니다.
@@ -50,6 +52,9 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	/* for file_name 15자 제한 */
+	strtok_r(file_name, " ", &tmp_ptr);
+	
 	/* FILE_NAME을 실행할 새로운 스레드를 생성합니다. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -162,6 +167,10 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	int kb = 1024 * 4;
+
+	/* 명렁어 전체 길이 제한 4KB */
+	ASSERT(strlen(f_name) <= kb);
 
 	/* 스레드 구조의 intr_frame을 사용할 수 없습니다.
 	 * 이는 현재 스레드가 다시 스케줄될 때,
@@ -196,8 +205,12 @@ process_exec (void *f_name) {
  * 이 함수는 문제 2-2에서 구현될 예정입니다. 지금은 아무것도 하지 않습니다. */
 int
 process_wait (tid_t child_tid UNUSED) {
+
 	/* XXX: 힌트) process_wait(initd)가 있으면 pintos가 종료되므로,
 	 * XXX:       process_wait를 구현하기 전에 여기에 무한 루프를 추가하는 것을 권장합니다. */
+	while(1) {
+
+	}
 	return -1;
 }
 
@@ -318,7 +331,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	struct file *file = NULL;
 	off_t file_ofs;
 	bool success = false;
-	int i;
+	int i, idx = 0; /* idx for argvs */
+	/* 추가한 변수들 */
+	char *argvs[64], *token, *save_ptr;
+
+	/* page의 사이즈 만큼 메모리 공간을 할당해주거나, 조건문을 통해 확인한다. */
+	for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+		argvs[idx++] = token;
+
+	file_name = argvs[0];
 
 	/* 페이지 디렉터리를 할당하고 활성화합니다. */
 	t->pml4 = pml4_create ();
@@ -407,6 +428,8 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 인수 전달을 구현하세요 (project2/argument_passing.html 참조). */
+	/* 필요하면 함수 직접 구현 */
+	// init_stack_frame(if_, idx, argvs);
 
 	success = true;
 
@@ -414,6 +437,60 @@ done:
     /* 로드가 성공했든 실패했든 여기에 도달합니다. */
 	file_close (file);
 	return success;
+}
+
+static void init_stack_frame(struct intr_frame *if_, int idx, char **argvs) {
+	/* idx+1인 이유는 EOF 때문 */
+	uintptr_t addr_list[idx];
+	uintptr_t size;
+
+	/// TODO: 여기에 코드를 작성하세요
+	if_->R.rbp = (uint64_t) USER_STACK;
+	if_->rsp = (uintptr_t) USER_STACK;
+	if_->R.rdi = (uint64_t) idx; 	// argc
+	if_->R.rsi = (uint64_t) argvs; // argv
+
+	/* 스택에 값을 저장하는 반복문 */
+	for (int i=idx-1;i >= 0; i--) {
+		char *argv = argvs[i];
+		/* 문자열 마다도 EOF 포함이기 때문에 +1 */
+		size = strlen(argv)+1;
+		/* stack pointer에 각각 문자열과 문자열 크기를 전달 */
+		if_->rsp -= size;
+		memcpy(if_->rsp, argv, strlen(argv)+1);
+		addr_list[i] = if_->rsp;
+	}
+
+	/* double word 기준 */
+	if (if_->rsp % 8 != 0)  {
+		uintptr_t padding_size = if_->rsp % 8;
+		if_->rsp -= padding_size;
+		memcpy(if_->rsp, 0, padding_size);
+	}
+
+	/* 포인터 메모리를 저장하는 반복문 */
+	for (int i=idx-1;i >= 0; i--) {
+		// (uintptr_t) 
+		size = sizeof(char *);
+		if_->rsp -= size;
+		memcpy(if_->rsp, addr_list[i], sizeof(char *));
+	}
+
+	/* null 포인터 추가 Gemini said 이게 인자의 주소 다음에 와야 함 */
+	if_->rsp -= sizeof(if_->rsp);
+	memcpy(if_->rsp, 0, sizeof(char *));
+
+	/* argv */
+	if_->rsp -= sizeof(char **);
+	memcpy(if_->rsp, argvs, sizeof(char **));
+
+	/* 인자의 개수 argc */
+	if_->rsp -= sizeof(int);
+	memcpy(if_->rsp, idx, sizeof(int));
+
+	/* Return address mem */
+	if_->rsp -= sizeof(void *);
+	memcpy(if_->rsp, 0, sizeof(void *));
 }
 
 
