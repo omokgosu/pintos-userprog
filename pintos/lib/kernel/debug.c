@@ -9,8 +9,8 @@
 #include "threads/interrupt.h"
 #include "devices/serial.h"
 
-/* Halts the OS, printing the source file name, line number, and
-   function name, plus a user-specific message. */
+/* OS를 중단시키고 소스 파일 이름, 줄 번호, 함수 이름과 
+   사용자 지정 메시지를 출력합니다. */
 void
 debug_panic (const char *file, int line, const char *function,
 		const char *message, ...) {
@@ -34,7 +34,7 @@ debug_panic (const char *file, int line, const char *function,
 		printf ("Kernel PANIC recursion at %s:%d in %s().\n",
 				file, line, function);
 	else {
-		/* Don't print anything: that's probably why we recursed. */
+		/* 아무것도 출력하지 않습니다: 아마도 그래서 재귀가 발생했을 것입니다. */
 	}
 
 	serial_flush ();

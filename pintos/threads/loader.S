@@ -1,6 +1,5 @@
-/* This file is derived from source code used in MIT's 6.828
-   course.  The original copyright notice is reproduced in full
-   below. */
+/* 이 파일은 MIT의 6.828 과정에서 사용된 소스 코드에서 파생되었습니다.
+   원본 저작권 고지는 아래에 전체적으로 재현되어 있습니다. */
 
 /*
  * Copyright (C) 1997 Massachusetts Institute of Technology 
@@ -40,46 +39,46 @@
 
 #include "threads/loader.h"
 	
-#### Kernel loader.
+#### 커널 로더
 
-#### This code should be stored in the first sector of the hard disk.
-#### When the BIOS runs, it loads this code at physical address
-#### 0x7c00-0x7e00 (512 bytes).  Then it jumps to the beginning of it,
-#### in real mode.  This code switches into protected mode (32-bit
-#### mode) so that all of memory can accessed, loads the kernel into
-#### memory, and jumps to the first byte of the kernel, where start.S
-#### is linked.
+#### 이 코드는 하드디스크의 첫 번째 섹터에 저장되어야 합니다.
+#### BIOS가 실행되면, 이 코드를 물리 주소 0x7c00-0x7e00 (512바이트)에 로드합니다.
+#### 그런 다음 실제 모드에서 이 코드의 시작점으로 점프합니다.
+#### 이 코드는 보호 모드(32비트 모드)로 전환하여 모든 메모리에 접근할 수 있게 하고,
+#### 커널을 메모리에 로드한 후 start.S가 링크된 커널의 첫 번째 바이트로 점프합니다.
 	
-/* Flags in control register 0. */
-#define CR0_PE 0x00000001      /* Protection Enable. */
-#define CR0_EM 0x00000004      /* (Floating-point) Emulation. */
-#define CR0_PG 0x80000000      /* Paging. */
-#define CR0_WP 0x00010000      /* Write-Protect enable in kernel mode. */
+/* 제어 레지스터 0의 플래그들 */
+#define CR0_PE 0x00000001      /* 보호 모드 활성화 */
+#define CR0_EM 0x00000004      /* (부동소수점) 에뮬레이션 */
+#define CR0_PG 0x80000000      /* 페이징 */
+#define CR0_WP 0x00010000      /* 커널 모드에서 쓰기 보호 활성화 */
+
 
 
 .globl start
 start:
 	
-# Code runs in real mode, which is a 16-bit segment.
+# 코드는 16비트 세그먼트인 실제 모드에서 실행됩니다.
 	.code16
 
-# Disable interrupts, because we will not be prepared to handle them
-# in protected mode until much later.
-# String instructions go upward (e.g. for "rep stosl" below).
+# 인터럽트를 비활성화합니다. 보호 모드에서 훨씬 나중까지
+# 인터럽트를 처리할 준비가 되지 않기 때문입니다.
+# 문자열 명령어는 위쪽으로 진행됩니다 (예: 아래의 "rep stosl").
 
 	cli
 	cld
 
-# Set up data segments.
+# 데이터 세그먼트를 설정합니다.
 
 	subw %ax, %ax
 	movw %ax, %es
 	movw %ax, %ds
 
-# Set up stack segment.
-# Stack grows downward starting from us.
-# We don't ever use the stack, but we call into the BIOS,
-# which might.
+# 스택 세그먼트를 설정합니다.
+# 스택은 우리로부터 시작하여 아래쪽으로 증가합니다.
+# 우리는 스택을 사용하지 않지만, BIOS를 호출하는데
+# BIOS가 스택을 사용할 수 있습니다.
+
 
 	movw %ax, %ss
 	movw $0x7c00, %sp
@@ -88,18 +87,19 @@ start:
 #### boots, which prevents addressing memory about 1 MB.  This code
 #### fixes it.
 	
-# Poll status register while busy.
+# 상태 레지스터가 바쁜 동안 폴링합니다.
 
 1:	inb $0x64, %al
 	testb $0x2, %al
 	jnz 1b
 
-# Send command for writing output port.
+# 출력 포트 쓰기 명령을 보냅니다.
+
 
 	movb $0xd1, %al
 	outb %al, $0x64
 
-# Poll status register while busy.
+# 상태 레지스터가 바쁜 동안 폴링합니다.
 
 1:	inb $0x64, %al
 	testb $0x2, %al
@@ -110,10 +110,9 @@ start:
 	movb $0xdf, %al
 	outb %al, $0x60
 
-
-#### Get memory size, via interrupt 15h function e820h. Now our pintos
-#### runs on x86_64, "Get Extended Memory Size" operation is not sufficient
-#### for our purpose.
+#### 인터럽트 15h 기능 e820h를 통해 메모리 크기를 얻습니다.
+#### 이제 우리의 pintos는 x86_64에서 실행되므로, "확장 메모리 크기 얻기"
+#### 작업은 우리의 목적에 충분하지 않습니다.
 	mov $0xe820, %eax  # command
 	mov $(E820_MAP4), %edi  # dst
 	xor %ebx, %ebx
@@ -142,42 +141,42 @@ e820_parse_done:
 	movl %ebp, MULTIBOOT_MMAP_LEN
 	movl $(E820_MAP), MULTIBOOT_MMAP_ADDR # e820
 
-#### Switch to protected mode.
+#### 보호 모드로 전환합니다.
 
-# Note that interrupts are still off.
+# 인터럽트는 여전히 비활성화되어 있습니다.
 
-# Point the GDTR to our GDT.  Protected mode requires a GDT.
-# We need a data32 prefix to ensure that all 32 bits of the GDT
-# descriptor are loaded (default is to load only 24 bits).
+# GDTR을 우리의 GDT로 가리킵니다. 보호 모드에는 GDT가 필요합니다.
+# GDT 디스크립터의 모든 32비트가 로드되도록 하기 위해 data32 접두사가 필요합니다
+# (기본값은 24비트만 로드).
 
 	data32 lgdt gdtdesc
 
-# Then we turn on the following bits in CR0:
-#    PE (Protect Enable): this turns on protected mode.
-#    PG (Paging): turns on paging.
-#    WP (Write Protect): if unset, ring 0 code ignores
-#       write-protect bits in page tables (!).
-#    EM (Emulation): forces floating-point instructions to trap.
-#       We don't support floating point. 
+# 그런 다음 CR0에서 다음 비트들을 켭니다:
+#    PE (보호 모드 활성화): 보호 모드를 켭니다.
+#    PG (페이징): 페이징을 켭니다.
+#    WP (쓰기 보호): 설정되지 않으면, 링 0 코드가 페이지 테이블의
+#       쓰기 보호 비트를 무시합니다 (!).
+#    EM (에뮬레이션): 부동소수점 명령어를 트랩하도록 강제합니다.
+#       우리는 부동소수점을 지원하지 않습니다.
 	
 	movl %cr0, %eax
 	orl $CR0_PE, %eax
 	movl %eax, %cr0
 	
-# We're now in protected mode in a 16-bit segment.  The CPU still has
-# the real-mode code segment cached in %cs's segment descriptor.  We
-# need to reload %cs, and the easiest way is to use a far jump.
-# Because we're not in a 32-bit segment the data32 prefix is needed to
-# jump to a 32-bit offset.
+# 이제 16비트 세그먼트에서 보호 모드에 있습니다. CPU는 여전히
+# %cs의 세그먼트 디스크립터에 실제 모드 코드 세그먼트를 캐시하고 있습니다.
+# %cs를 다시 로드해야 하며, 가장 쉬운 방법은 far jump를 사용하는 것입니다.
+# 32비트 세그먼트에 있지 않기 때문에 32비트 오프셋으로 점프하려면
+# data32 접두사가 필요합니다.
 
 	data32 ljmp $SEL_KCSEG, $protcseg
 
-# We're now in protected mode in a 32-bit segment.
+# 이제 32비트 세그먼트에서 보호 모드에 있습니다.
 
 	.code32
 
-# Reload all the other segment registers and the stack pointer to
-# point into our new GDT.
+# 다른 모든 세그먼트 레지스터와 스택 포인터를 다시 로드하여
+# 새로운 GDT를 가리키도록 합니다.
 
 protcseg:
 	movw $SEL_KDSEG, %ax
@@ -188,17 +187,16 @@ protcseg:
 	movw %ax, %ss
 	movl $LOADER_PHYS_BASE + 0x30000, %esp
 
-#### Load kernel starting at physical address LOADER_PHYS_BASE by
-#### frobbing the IDE controller directly.
+#### IDE 컨트롤러를 직접 조작하여 물리 주소 LOADER_PHYS_BASE에서
+#### 시작하는 커널을 로드합니다.
 
 	movl $1, %ebx
 	movl $LOADER_PHYS_BASE, %edi
 
-# Disable interrupt delivery by IDE controller, because we will be
-# polling for data.
-# (If we don't do this, Bochs 2.2.6 will never deliver any IDE
-# interrupt to us later after we reset the interrupt controller during
-# boot, even if we also reset the IDE controller.)
+# 데이터를 폴링할 것이므로 IDE 컨트롤러의 인터럽트 전달을 비활성화합니다.
+# (이를 하지 않으면, 부팅 중에 인터럽트 컨트롤러를 리셋한 후에도
+# Bochs 2.2.6이 나중에 IDE 인터럽트를 전달하지 않습니다.
+# IDE 컨트롤러도 리셋했더라도 마찬가지입니다.)
 
 	movw $0x3f6, %dx
 	movb $0x02, %al
@@ -206,27 +204,27 @@ protcseg:
 	
 read_sector:
 
-# Poll status register while controller busy.
+# 컨트롤러가 바쁜 동안 상태 레지스터를 폴링합니다.
 
 	movl $0x1f7, %edx
 1:	inb %dx, %al
 	testb $0x80, %al
 	jnz 1b
 
-# Read a single sector.
+# 단일 섹터를 읽습니다.
 
 	movl $0x1f2, %edx
 	movb $1, %al
 	outb %al, %dx
 
-# Sector number to write in low 28 bits.
-# LBA mode, device 0 in top 4 bits.
+# 하위 28비트에 쓸 섹터 번호.
+# 상위 4비트에 LBA 모드, 장치 0.
 
 	movl %ebx, %eax
 	andl $0x0fffffff, %eax
 	orl $0xe0000000, %eax
 
-# Dump %eax to ports 0x1f3...0x1f6.
+# %eax를 포트 0x1f3...0x1f6에 덤프합니다.
 
 	movl $4, %ecx
 1:	incw %dx
@@ -234,31 +232,31 @@ read_sector:
 	shrl $8, %eax
 	loop 1b
 
-# READ command to command register.
+# 명령 레지스터에 READ 명령.
 
 	incw %dx
 	movb $0x20, %al
 	outb %al, %dx
 
-# Poll status register while controller busy.
+# 컨트롤러가 바쁜 동안 상태 레지스터를 폴링합니다.
 
 1:	inb %dx, %al
 	testb $0x80, %al
 	jnz 1b
 
-# Poll status register until data ready.
+# 데이터가 준비될 때까지 상태 레지스터를 폴링합니다.
 
 1:	inb %dx, %al
 	testb $0x08, %al
 	jz 1b
 
-# Transfer sector.
+# 섹터를 전송합니다.
 
 	movl $256, %ecx
 	movl $0x1f0, %edx
 	rep insw
 
-# Next sector.
+# 다음 섹터.
 
 	incl %ebx
 	cmpl $KERNEL_LOAD_PAGES*8 + 1, %ebx
