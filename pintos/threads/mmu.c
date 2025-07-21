@@ -94,6 +94,7 @@ pml4e_walk (uint64_t *pml4e, const uint64_t va, int create) {
 */
 uint64_t *
 pml4_create (void) {
+	/* page table: 가상 주소 -> 물리 주소 (4KB 할당 받음) */
 	uint64_t *pml4 = palloc_get_page (0);
 	if (pml4)
 		memcpy (pml4, base_pml4, PGSIZE);
