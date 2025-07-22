@@ -27,6 +27,7 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 static void init_stack_frame(struct intr_frame *if_, char **argv, int argc); // 필요하면 직접 구현
+static void copy_to_user(struct intr_frame *if_, void *argv, int size);
 
 
 /* initd와 다른 프로세스를 위한 일반적인 프로세스 초기화 함수. */
@@ -150,8 +151,6 @@ __do_fork (void *aux) {
     * TODO: 힌트) 파일 객체를 복제하려면 include/filesys/file.h의 `file_duplicate`를 사용하세요.
     * TODO:       부모는 이 함수가 부모의 자원을 성공적으로 복제할 때까지
     * TODO:       fork()에서 반환하지 않아야 합니다. */
-
-
 	process_init ();
 
 	/* 마지막으로, 새로 생성된 프로세스로 전환합니다. */
@@ -190,17 +189,11 @@ process_exec (void *f_name) {
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
-	char *valid_s = "is sucess false and returned?\n";
-	write(1, valid_s, strlen(valid_s));
-	
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* 전환된 프로세스를 시작합니다. */
 	/* 유저 모드 진입 return 함수 */
 	do_iret (&_if);
 
-	*valid_s = "do_iret executed\n";
-	write(1, valid_s, strlen(valid_s));
 	NOT_REACHED ();
 }
 
@@ -216,9 +209,10 @@ process_wait (tid_t child_tid UNUSED) {
 
 	/* XXX: 힌트) process_wait(initd)가 있으면 pintos가 종료되므로,
 	 * XXX:       process_wait를 구현하기 전에 여기에 무한 루프를 추가하는 것을 권장합니다. */
-	while(1) {
+	thread_sleep(500);
+	// while(1) {
 
-	}
+	// }
 	return -1;
 }
 
@@ -437,7 +431,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 인수 전달을 구현하세요 (project2/argument_passing.html 참조). */
 	/* 필요하면 함수 직접 구현 */
-	if_->R.rbp = USER_STACK;
 	if_->rsp = USER_STACK;
 
 	init_stack_frame(if_, argv, argc);
@@ -451,7 +444,7 @@ done:
 }
 
 static void init_stack_frame(struct intr_frame *if_, char **argv, int argc) {
-	char argv_address_list[64]; /* argv address list */
+	char *argv_address_list[64]; /* argv address list */
 	int padding = 0;
 
 	/* stack frame에 argv 값 넣기 */
@@ -460,31 +453,43 @@ static void init_stack_frame(struct intr_frame *if_, char **argv, int argc) {
 		int size = strlen(a) + 1;
 
 		if_->rsp -= size; /* 미리 argv[i]번의 길이 +1 만큼 address 뺀다 */
-		memcpy(if_->rsp, a, size); /* 미리 계산한 주소에 a를 size만큼 값을 넣는다. */
+		copy_to_user(if_, a, size);
+		// memcpy(if_->rsp, a, size); /* 미리 계산한 주소에 a를 size만큼 값을 넣는다. */
 		argv_address_list[i] = if_->rsp;
 	}
 
 	/* double world align */
 	padding = if_->rsp % 8;
 	if_->rsp -= padding;
-	memset(if_->rsp, 0, padding); /* 미리 계산된 if_->rsp에 0으로 padding 사이즈만큼 세팅 */
+	copy_to_user(if_, 0, padding);
+	// memset(if_->rsp, 0, padding); /* 미리 계산된 if_->rsp에 0으로 padding 사이즈만큼 세팅 */
 
 	/* null 포인터 주소 */
 	if_->rsp -= sizeof(char *);
-	memset(if_->rsp, 0, sizeof(char *));
+	copy_to_user(if_, 0, sizeof(char *));
+	// memset(if_->rsp, 0, sizeof(char *));
 	
 	/* stack frame에 argv 값 포인터 주소 넣기 */
 	for (int i=argc-1; i >= 0; i--) {
 		if_->rsp -= sizeof(char *);
-		memcpy(if_->rsp, argv_address_list[i], sizeof(char *));
+		*(char **)if_->rsp = argv_address_list[i]; /* if_->rsp 주소를 char 타입으로 역참조 */
 	}
 
 	/* return address */
 	if_->rsp -= sizeof(void(*));
-	memset(if_->rsp, 0, sizeof(void *));
+	copy_to_user(if_, 0, sizeof(void *));
+	// memset(if_->rsp, 0, sizeof(void *));
 
 	if_->R.rdi = argc;
-	if_->R.rsi = if_->rsp + 8; /* return address로부터 포인터 크기 만큼 위에가 argv 위치 */
+	if_->R.rsi = if_->rsp + sizeof(void *); /* return address로부터 포인터 크기 만큼 위에가 argv 위치 */
+}
+
+static void copy_to_user(struct intr_frame *if_, void *argv, int size) {
+	ASSERT(is_user_vaddr(if_->rsp));
+	if (argv == 0)
+		memset(if_->rsp, (int *)argv, size);
+	else
+		memcpy(if_->rsp, (char *)argv, size);	
 }
 
 
