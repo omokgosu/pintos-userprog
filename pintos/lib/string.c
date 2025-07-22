@@ -280,7 +280,7 @@ strnlen (const char *string, size_t maxlen) {
 
    strlcpy()는 표준 C 라이브러리에 없지만 점점 인기가 높아지는 확장입니다.
    strlcpy()에 대한 정보는 
-http://www.courtesan.com/todd/papers/strlcpy.html을 참조하세요. */
+http://www.courtesan.com/todd/papers/strlcpy.html을 참조하세요. 
 information on strlcpy(). */
 size_t
 strlcpy (char *dst, const char *src, size_t size) {

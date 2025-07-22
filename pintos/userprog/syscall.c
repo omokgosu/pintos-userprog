@@ -41,7 +41,7 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
+	// printf ("system call!\n");
 	 uint64_t sys_num = f->R.rax; // 시스템 콜 번호 가져오기
 	/* f에서 전달 받은 argument들을 가져온다. */
 	switch (sys_num)
@@ -61,7 +61,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		thread_exit ();
 	}
 	
-	thread_exit ();
+	// thread_exit ();
 }
 
 void halt() {
@@ -85,7 +85,7 @@ int write (
 	// 8. fd 테이블에서 fd에 해당하는 파일 객체를 찾을 수 있는가? 검증 필요
 	if (fd <= 0 || length == 0 || buffer == NULL) return -1;
 	if (fd == 1) {
-		/// TODO: 표준 출력 (콘솔)
+		/// TODO: 표준 출력 (콘솔).  
 		// return 읽은 바이트 수
 		putbuf((char *) buffer, length);
 		return length;
