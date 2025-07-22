@@ -223,6 +223,9 @@ process_exit (void) {
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 프로세스 종료 메시지를 구현하세요 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. */
+	if (!curr->status) {
+		printf("%s: exit(0)\n", curr->name);
+	}
 
 	process_cleanup ();
 }
