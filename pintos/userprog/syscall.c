@@ -52,7 +52,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		break;
 	case SYS_EXIT:
 		/// TODO: exit() code 에러: [2, 9]
-		int status = (int) f->R.rsi; // 인자 가져오기
+		// int status = (int) ; // 인자 가져오기
+		exit(f->R.rsi);
 		break;
 	case SYS_WRITE:
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
@@ -66,6 +67,16 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 void halt() {
 	power_off();
+}
+
+void exit(int status) {
+	if (!status) { /* exit sccuess */
+		struct thread *t = thread_current();
+		t->exit_status = status;
+		thread_exit();
+	} else { /* exit fail */
+		
+	}	
 }
 
 int write (
