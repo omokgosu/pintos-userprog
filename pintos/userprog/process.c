@@ -26,7 +26,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
-static void init_stack_frame(struct intr_frame *if_, int idx, char ** argvs); // 필요하면 직접 구현
+static void init_stack_frame(struct intr_frame *if_, char **argv, int argc); // 필요하면 직접 구현
 
 
 /* initd와 다른 프로세스를 위한 일반적인 프로세스 초기화 함수. */
@@ -190,9 +190,17 @@ process_exec (void *f_name) {
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+	char *valid_s = "is sucess false and returned?\n";
+	write(1, valid_s, strlen(valid_s));
+	
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* 전환된 프로세스를 시작합니다. */
+	/* 유저 모드 진입 return 함수 */
 	do_iret (&_if);
+
+	*valid_s = "do_iret executed\n";
+	write(1, valid_s, strlen(valid_s));
 	NOT_REACHED ();
 }
 
@@ -331,15 +339,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	struct file *file = NULL;
 	off_t file_ofs;
 	bool success = false;
-	int i, idx = 0; /* idx for argvs */
+	int i, argc = 0; /* idx for argvs */
 	/* 추가한 변수들 */
-	char *argvs[64], *token, *save_ptr;
+	char *argv[64], *token, *save_ptr;
 
 	/* page의 사이즈 만큼 메모리 공간을 할당해주거나, 조건문을 통해 확인한다. */
 	for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
-		argvs[idx++] = token;
+		argv[argc++] = token;
 
-	file_name = argvs[0];
+	file_name = argv[0];
 
 	/* 페이지 디렉터리를 할당하고 활성화합니다. */
 	t->pml4 = pml4_create ();
@@ -429,8 +437,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 인수 전달을 구현하세요 (project2/argument_passing.html 참조). */
 	/* 필요하면 함수 직접 구현 */
-	// init_stack_frame(if_, idx, argvs);
+	if_->R.rbp = USER_STACK;
+	if_->rsp = USER_STACK;
 
+	init_stack_frame(if_, argv, argc);
+	
 	success = true;
 
 done:
@@ -439,58 +450,41 @@ done:
 	return success;
 }
 
-static void init_stack_frame(struct intr_frame *if_, int idx, char **argvs) {
-	/* idx+1인 이유는 EOF 때문 */
-	uintptr_t addr_list[idx];
-	uintptr_t size;
+static void init_stack_frame(struct intr_frame *if_, char **argv, int argc) {
+	char argv_address_list[64]; /* argv address list */
+	int padding = 0;
 
-	/// TODO: 여기에 코드를 작성하세요
-	if_->R.rbp = (uint64_t) USER_STACK;
-	if_->rsp = (uintptr_t) USER_STACK;
-	if_->R.rdi = (uint64_t) idx; 	// argc
-	if_->R.rsi = (uint64_t) argvs; // argv
+	/* stack frame에 argv 값 넣기 */
+	for (int i=argc-1; i >= 0; i--) {
+		char *a = argv[i];
+		int size = strlen(a) + 1;
 
-	/* 스택에 값을 저장하는 반복문 */
-	for (int i=idx-1;i >= 0; i--) {
-		char *argv = argvs[i];
-		/* 문자열 마다도 EOF 포함이기 때문에 +1 */
-		size = strlen(argv)+1;
-		/* stack pointer에 각각 문자열과 문자열 크기를 전달 */
-		if_->rsp -= size;
-		memcpy(if_->rsp, argv, strlen(argv)+1);
-		addr_list[i] = if_->rsp;
+		if_->rsp -= size; /* 미리 argv[i]번의 길이 +1 만큼 address 뺀다 */
+		memcpy(if_->rsp, a, size); /* 미리 계산한 주소에 a를 size만큼 값을 넣는다. */
+		argv_address_list[i] = if_->rsp;
 	}
 
-	/* double word 기준 */
-	if (if_->rsp % 8 != 0)  {
-		uintptr_t padding_size = if_->rsp % 8;
-		if_->rsp -= padding_size;
-		memcpy(if_->rsp, 0, padding_size);
+	/* double world align */
+	padding = if_->rsp % 8;
+	if_->rsp -= padding;
+	memset(if_->rsp, 0, padding); /* 미리 계산된 if_->rsp에 0으로 padding 사이즈만큼 세팅 */
+
+	/* null 포인터 주소 */
+	if_->rsp -= sizeof(char *);
+	memset(if_->rsp, 0, sizeof(char *));
+	
+	/* stack frame에 argv 값 포인터 주소 넣기 */
+	for (int i=argc-1; i >= 0; i--) {
+		if_->rsp -= sizeof(char *);
+		memcpy(if_->rsp, argv_address_list[i], sizeof(char *));
 	}
 
-	/* 포인터 메모리를 저장하는 반복문 */
-	for (int i=idx-1;i >= 0; i--) {
-		// (uintptr_t) 
-		size = sizeof(char *);
-		if_->rsp -= size;
-		memcpy(if_->rsp, addr_list[i], sizeof(char *));
-	}
+	/* return address */
+	if_->rsp -= sizeof(void(*));
+	memset(if_->rsp, 0, sizeof(void *));
 
-	/* null 포인터 추가 Gemini said 이게 인자의 주소 다음에 와야 함 */
-	if_->rsp -= sizeof(if_->rsp);
-	memcpy(if_->rsp, 0, sizeof(char *));
-
-	/* argv */
-	if_->rsp -= sizeof(char **);
-	memcpy(if_->rsp, argvs, sizeof(char **));
-
-	/* 인자의 개수 argc */
-	if_->rsp -= sizeof(int);
-	memcpy(if_->rsp, idx, sizeof(int));
-
-	/* Return address mem */
-	if_->rsp -= sizeof(void *);
-	memcpy(if_->rsp, 0, sizeof(void *));
+	if_->R.rdi = argc;
+	if_->R.rsi = if_->rsp + 8; /* return address로부터 포인터 크기 만큼 위에가 argv 위치 */
 }
 
 
