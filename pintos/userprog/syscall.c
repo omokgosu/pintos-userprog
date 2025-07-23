@@ -65,8 +65,11 @@ int exec (const char *cmd_line) {
 }
 
 bool create (const char *file, unsigned initial_size) {
-	if (strlen(file) == 0 | initial_size == 0)
+	if (file == NULL || is_kernel_vaddr(file))
 		return false;
+
+	if (strlen(file) == 0)
+	 	return false;
 
 	return filesys_create(file, initial_size);
 }
