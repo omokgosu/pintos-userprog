@@ -93,25 +93,34 @@ static bool
 duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	struct thread *current = thread_current ();
 	struct thread *parent = (struct thread *) aux;
-	void *parent_page;
+	void *parent_page; // 부모의 PML4 엔트리를 순회하면서 얻은 물리주소
 	void *newpage;
 	bool writable;
 
 	/* 1. TODO: parent_page가 커널 페이지라면, 즉시 반환합니다. */
+	if (is_kernel_vaddr(va)) {
+		return false;
+	}
 
 	/* 2. 부모의 페이지 맵 레벨 4에서 VA를 해석합니다. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
 	/* 3. TODO: 자식을 위한 새로운 PAL_USER 페이지를 할당하고 결과를
 	 *    TODO: NEWPAGE에 설정합니다. */
+	newpage = palloc_get_page(PAL_USER);
 
 	/* 4. TODO: 부모의 페이지를 새 페이지로 복제하고
 	 *    TODO: 부모의 페이지가 쓰기 가능한지 확인합니다 (결과에 따라
 	 *    TODO: WRITABLE을 설정합니다). */
 
+	memcpy (newpage, parent_page, PGSIZE);
+	writable = is_writable((uint64_t *)va);
+	
 	/* 5. WRITABLE 권한으로 주소 VA에 새 페이지를 자식의 페이지 테이블에 추가합니다. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: 페이지 삽입에 실패하면, 오류 처리를 수행합니다. */
+		palloc_free_page(newpage);
+		return false;
 	}
 	return true;
 }
@@ -128,6 +137,14 @@ __do_fork (void *aux) {
 	/* TODO: 어떻게든 parent_if를 전달합니다. (즉, process_fork()의 if_) */
 	struct intr_frame *parent_if;
 	bool succ = true;
+
+	parent_if->R.rbx = &(parent->tf).R.rbx;
+	parent_if->rsp = &(parent->tf).rsp;
+	parent_if->R.rbp = &(parent->tf).R.rbp;
+	parent_if->R.r12 = &(parent->tf).R.r12;
+	parent_if->R.r13 = &(parent->tf).R.r13;
+	parent_if->R.r14 = &(parent->tf).R.r14;
+	parent_if->R.r15 = &(parent->tf).R.r15;
 
 	/* 1. CPU 컨텍스트를 로컬 스택에 읽습니다. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
@@ -151,6 +168,7 @@ __do_fork (void *aux) {
     * TODO: 힌트) 파일 객체를 복제하려면 include/filesys/file.h의 `file_duplicate`를 사용하세요.
     * TODO:       부모는 이 함수가 부모의 자원을 성공적으로 복제할 때까지
     * TODO:       fork()에서 반환하지 않아야 합니다. */
+   
 	process_init ();
 
 	/* 마지막으로, 새로 생성된 프로세스로 전환합니다. */
@@ -184,7 +202,7 @@ process_exec (void *f_name) {
 
 	/* 그리고 바이너리를 로드합니다 */
 	success = load (file_name, &_if);
-
+	//hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 	/* 로드가 실패하면 종료합니다. */
 	palloc_free_page (file_name);
 	if (!success)
@@ -223,6 +241,8 @@ process_exit (void) {
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 프로세스 종료 메시지를 구현하세요 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. */
+if ((curr->pml4) != NULL)
+	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
 	process_cleanup ();
 }
