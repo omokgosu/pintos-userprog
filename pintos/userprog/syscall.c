@@ -7,6 +7,8 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "userprog/process.h" // fork() 때문에 추가
+#include "filesys/filesys.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -37,36 +39,38 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-/* The main system call interface */
-void
-syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
-	// printf ("system call!\n");
-	 uint64_t sys_num = f->R.rax; // 시스템 콜 번호 가져오기
-	/* f에서 전달 받은 argument들을 가져온다. */
-	switch (sys_num)
-	{
-	case SYS_HALT:
-		/// TODO: halt() code 시스템 종료: [2, 4]
-		halt();
-		break;
-	case SYS_EXIT:
-		/// TODO: exit() code 에러: [2, 9]
-		int status = (int) f->R.rsi; // 인자 가져오기
-		break;
-	case SYS_WRITE:
-		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
-		break;
-	default:
-		thread_exit ();
-	}
-	
-	// thread_exit ();
-}
+
 
 void halt() {
 	power_off();
 }
+
+void exit (int status) {
+	struct thread *t = thread_current();
+	t->exit_status = status;
+	
+	thread_exit();
+}
+
+tid_t fork (const char *thread_name) {
+	struct thread *t = thread_current();
+
+	return process_fork(thread_name, &t->tf);
+
+}
+
+
+int exec (const char *cmd_line) {
+
+}
+
+bool create (const char *file, unsigned initial_size) {
+	if (strlen(file) == 0 | initial_size == 0)
+		return false;
+
+	return filesys_create(file, initial_size);
+}
+
 
 int write (
     int fd,
@@ -91,4 +95,46 @@ int write (
 		return length;
 	}
 	return -1;
+}
+
+/* The main system call interface */
+void
+syscall_handler (struct intr_frame *f UNUSED) {
+	// TODO: Your implementation goes here.
+	// printf ("system call!\n");
+	uint64_t sys_num = f->R.rax; // 시스템 콜 번호 가져오기
+	/* f에서 전달 받은 argument들을 가져온다. */
+	switch (sys_num)
+	{
+	case SYS_HALT:
+		/// TODO: halt() code 시스템 종료: [2, 4]
+		halt();
+		break;
+	case SYS_EXIT:
+		/// TODO: exit() code 에러: [2, 9]
+		int status = (int) f->R.rdi; // 인자 가져오기
+		exit(status);
+		break;
+	case SYS_FORK:
+		char *thread_name = (char *) f->R.rdi;
+		fork(thread_name);
+		break;
+	case SYS_EXEC:
+		char *cmd_line = (char *) f->R.rdi;
+		exec(cmd_line);
+		break;
+	case SYS_CREATE:
+		char *file = (char *) f->R.rdi;
+		unsigned initial_size = (unsigned) f->R.rsi;	
+		f->R.rax = create(file, initial_size);
+		break;
+	case SYS_WRITE:
+		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
+		break;
+
+	default:
+		thread_exit ();
+	}
+	
+	// thread_exit ();
 }
