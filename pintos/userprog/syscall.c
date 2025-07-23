@@ -65,8 +65,13 @@ int exec (const char *cmd_line) {
 }
 
 bool create (const char *file, unsigned initial_size) {
-	if (file == NULL || is_kernel_vaddr(file))
-		return false;
+	struct thread *t = thread_current();
+	
+	if (file == NULL)
+		exit(-1);
+
+	if (pml4_get_page(t->pml4, file) == NULL)
+		exit(-1);
 
 	if (strlen(file) == 0)
 	 	return false;
