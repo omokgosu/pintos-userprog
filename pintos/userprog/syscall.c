@@ -11,6 +11,8 @@
 #include "filesys/filesys.h"
 #include "threads/synch.h"
 #include "filesys/file.h"
+#include "filesys/directory.h"
+#include <string.h>
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -53,8 +55,14 @@ void exit (int status) {
 	struct thread *t = thread_current();
 	t->is_exited = true;
 	t->exit_status = status;
+	//t->parent_process->exit_status = status;
 	
+	sema_up(&thread_current()->wait_sema); // 위치 여기 아닐수도 있음
+
 	thread_exit();
+
+	// if ((t->pml4) != NULL)
+	// 	printf("%s: exit(%d)\n", t->name, t->exit_status);
 }
 
 tid_t fork (const char *thread_name) {
@@ -66,7 +74,33 @@ tid_t fork (const char *thread_name) {
 
 
 int exec (const char *cmd_line) {
+	// char *file_name, *tmp_ptr;
+	// struct inode *inode = NULL;
 
+	if (pml4_get_page(thread_current()->pml4, cmd_line) == NULL)
+		exit(-1);
+
+	// file_name = palloc_get_page (0);
+	// if (file_name == NULL)
+	// 	exit(-1);
+	// memcpy(file_name, cmd_line, strcspn(cmd_line, " "));
+
+	// if (!dir_lookup(dir_open_root(), file_name, &inode))
+	// 	exit(-1);
+
+	tid_t child_tid = process_create_initd(cmd_line);
+
+	if (child_tid == TID_ERROR)
+		exit(-1);
+	
+	sema_down(&thread_current()->exec_sema);
+
+	exit(wait(child_tid));
+}
+
+int wait (tid_t pid) {
+	
+	return process_wait(pid);
 }
 
 bool create (const char *file, unsigned initial_size) {
@@ -105,7 +139,6 @@ int open (const char *file) {
 	fd = t->next_fd++;
 	t->fdt[fd] = opened_file;
 
-	
 	return fd;
 }
 
@@ -178,29 +211,8 @@ int write (int fd, const void *buffer, unsigned length) {
 		write_file = t->fdt[fd];
 		return file_write(write_file, buffer, length);
 	}
-	
-}
 
-// int write (int fd, const void *buffer, unsigned length) {
-// 	// 1. 접근 관점: fd의 상태에 따라 구현
-// 	// 2. 유저 메모리에 안전하게 접근 buffer가 유저 메모리 공간
-// 	//	  	helper 함수를 만들어 메모리를 검증하고 복사한다.
-// 	// 3. 동시성 고려: 내부적으로 공유 리소스를 건드릴 수 있음.
-// 	//		lock을 사용해 상호 배제(파일 시스템 작업할 때 락 필요)
-// 	// 4. 반환값의 의미를 생각해라: 에러 -1 or 실제로 쓴 바이트 수
-// 	// 5. 사이즈가 0인 경우
-// 	// 6. NULL 포인터인 경우
-// 	// 7. 이미 닫힌 fd를 참조하는 경우 (예외 처리)
-// 	// 8. fd 테이블에서 fd에 해당하는 파일 객체를 찾을 수 있는가? 검증 필요
-// 	if (fd <= 0 || length == 0 || buffer == NULL) return -1;
-// 	if (fd == 1) {
-// 		/// TODO: 표준 출력 (콘솔).  
-// 		// return 읽은 바이트 수
-// 		putbuf((char *) buffer, length);
-// 		return length;
-// 	}
-// 	return -1;
-// }
+}
 
 /* The main system call interface */
 void
@@ -229,6 +241,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_EXEC:
 		char *cmd_line = (char *) f->R.rdi;
 		exec(cmd_line);
+		break;
+	case SYS_WAIT:
+		tid_t pid = (tid_t) f->R.rdi;
+		f->R.rax = wait(pid);
 		break;
 	case SYS_CREATE:
 		file = (char *) f->R.rdi;

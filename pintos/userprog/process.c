@@ -205,6 +205,9 @@ process_exec (void *f_name) {
 	//hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 	/* 로드가 실패하면 종료합니다. */
 	palloc_free_page (file_name);
+
+	sema_up(&thread_current()->parent_process->exec_sema);
+
 	if (!success)
 		return -1;
 
@@ -222,15 +225,37 @@ process_exec (void *f_name) {
  * 이미 성공적으로 호출되었다면, 기다리지 않고 즉시 -1을 반환합니다.
  *
  * 이 함수는 문제 2-2에서 구현될 예정입니다. 지금은 아무것도 하지 않습니다. */
+// int
+// process_wait (tid_t child_tid UNUSED) {
+
+// 	/* XXX: 힌트) process_wait(initd)가 있으면 pintos가 종료되므로,
+// 	 * XXX:       process_wait를 구현하기 전에 여기에 무한 루프를 추가하는 것을 권장합니다. */
+// 	thread_sleep(500);
+// 	// while(1) {
+
+// 	// }
+// 	return -1;
+// }
+
 int
 process_wait (tid_t child_tid UNUSED) {
+	struct list_elem *p;
+	struct thread *t = thread_current();
 
-	/* XXX: 힌트) process_wait(initd)가 있으면 pintos가 종료되므로,
-	 * XXX:       process_wait를 구현하기 전에 여기에 무한 루프를 추가하는 것을 권장합니다. */
-	thread_sleep(500);
-	// while(1) {
+	p = list_begin(&t->child_list);
 
-	// }
+	while ( p != list_end(&t->child_list) ) {
+		struct list_elem *next = list_next(p);
+		struct thread *child_thread = list_entry(p, struct thread, child_elem);
+
+		if (child_thread->tid == child_tid) {
+			sema_down(&child_thread->wait_sema);
+			return child_thread->exit_status;
+		}
+
+		p = next;
+	}
+
 	return -1;
 }
 
@@ -241,8 +266,9 @@ process_exit (void) {
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 프로세스 종료 메시지를 구현하세요 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. */
-if ((curr->pml4) != NULL)
-	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+
+	if ((curr->pml4) != NULL && curr->parent_process->tid == 1)
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
 	process_cleanup ();
 }
