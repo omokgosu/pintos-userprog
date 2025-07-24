@@ -7,6 +7,11 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "../include/lib/user/syscall.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include <string.h>
+#define NAME_MAX 14
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -41,28 +46,46 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	// printf ("system call!\n");
 	 uint64_t sys_num = f->R.rax; // 시스템 콜 번호 가져오기
-	/* f에서 전달 받은 argument들을 가져온다. */
 	switch (sys_num)
 	{
 	case SYS_HALT:
-		/// TODO: halt() code 시스템 종료: [2, 4]
 		halt();
 		break;
 	case SYS_EXIT:
-		/// TODO: exit() code 에러: [2, 9]
-		// int status = (int) ; // 인자 가져오기
-		exit(f->R.rsi);
+		exit(f->R.rdi);
+		break;
+	case SYS_FORK:
+		break;
+	case SYS_EXEC:
+		break;
+	case SYS_WAIT:
+		// wait(f->R.rdi);
+		break;
+	case SYS_CREATE:
+		f->R.rax = create (f->R.rdi, f->R.rsi);
+		break;
+	case SYS_REMOVE:
+		break;
+	case SYS_OPEN:
+		f->R.rax = open (f->R.rdi);
+		break;
+	case SYS_FILESIZE:
+		break;
+	case SYS_READ:
 		break;
 	case SYS_WRITE:
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
+	case SYS_SEEK:
+		break;
+	case SYS_TELL:
+		break;
+	case SYS_CLOSE:
+		break;
 	default:
 		thread_exit ();
 	}
-	
-	// thread_exit ();
 }
 
 void halt() {
@@ -70,13 +93,48 @@ void halt() {
 }
 
 void exit(int status) {
-	if (!status) { /* exit sccuess */
-		struct thread *t = thread_current();
-		t->exit_status = status;
-		thread_exit();
-	} else { /* exit fail */
-		
-	}	
+	struct thread *t = thread_current();
+	t->exit_status = status;
+	thread_exit();	
+}
+
+// int wait(pid_t pid) {
+// 	/* 
+// 	if
+// 	`pid`는 호출 프로세스의 직접적인 자식이 아닐 경우.
+// 	호출 프로세스가 이미 해당 `pid`에 대해 `wait()`를 호출한 적이 있는 경우.
+// 	return -1;
+// 	*/
+// }
+bool intr_bad_ptr(const char *file) {
+	struct thread *curr = thread_current();
+	if (pml4_get_page(curr->pml4, file) == NULL)
+		exit(-1);
+
+	if (is_user_vaddr(file))
+		return false;
+	return true;
+}
+
+bool create (const char *file, unsigned initial_size) {
+	if (file == NULL 
+		|| intr_bad_ptr(file)  
+		|| !strcmp(file, ""))  
+		exit(-1);
+
+	if (strlen(file) > NAME_MAX)
+		return false;
+
+	return filesys_create(file, initial_size);
+}
+
+int open (const char *file) {
+	struct file *opened_file = filesys_open(file);
+
+	if (opened_file == NULL)
+		return -1;
+
+	return opened_file;
 }
 
 int write (

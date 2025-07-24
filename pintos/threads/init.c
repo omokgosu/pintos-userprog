@@ -244,7 +244,9 @@ run_task (char **argv) {
 	if (thread_tests){
 		run_test (task);
 	} else {
+		// ASSERT(thread_current()->name == "main");
 		process_wait (process_create_initd (task));
+		// sema_down(&thread_current()->waiting_lock);
 	}
 #else
 	run_test (task);
