@@ -15,6 +15,7 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+static bool intr_bad_ptr(const char *file);
 
 /* 시스템 콜.
  *
@@ -82,6 +83,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_TELL:
 		break;
 	case SYS_CLOSE:
+		close(f->R.rdi);
 		break;
 	default:
 		thread_exit ();
@@ -106,21 +108,9 @@ void exit(int status) {
 // 	return -1;
 // 	*/
 // }
-bool intr_bad_ptr(const char *file) {
-	struct thread *curr = thread_current();
-	if (pml4_get_page(curr->pml4, file) == NULL)
-		exit(-1);
 
-	if (is_user_vaddr(file))
-		return false;
-	return true;
-}
-
-bool create (const char *file, unsigned initial_size) {
-	if (file == NULL 
-		|| intr_bad_ptr(file)  
-		|| !strcmp(file, ""))  
-		exit(-1);
+bool create (const char *file, unsigned initial_size) { 
+	intr_bad_ptr(file);
 
 	if (strlen(file) > NAME_MAX)
 		return false;
@@ -129,12 +119,18 @@ bool create (const char *file, unsigned initial_size) {
 }
 
 int open (const char *file) {
-	struct file *opened_file = filesys_open(file);
+	struct file *open_file;
 
-	if (opened_file == NULL)
+	if (intr_bad_ptr(file) || !strcmp(file, ""))
+		open_file = -1;
+	else	
+		open_file = filesys_open(file);
+	
+	/* 찾을 수 없는 파일인 경우 NULL 반환 */
+	if (open_file == NULL)
 		return -1;
 
-	return opened_file;
+	return open_file;
 }
 
 int write (
@@ -160,4 +156,19 @@ int write (
 		return length;
 	}
 	return -1;
+}
+
+void close(int fd) {
+	// filesys_close
+}
+
+static bool intr_bad_ptr(const char *file) {
+	struct thread *curr = thread_current();
+	if (file == NULL  || pml4_get_page(curr->pml4, file) == NULL)
+		exit(-1);
+
+	if (is_user_vaddr(file))
+		return false;
+
+	return true;
 }
