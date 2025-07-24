@@ -99,6 +99,25 @@ int open (const char *file) {
 	return opened_file;
 }
 
+int read (
+    int fd,
+    const void *buffer,
+    unsigned length
+) {
+	struct thread *t = thread_current();
+
+	if (fd < 0 || length == 0 || buffer == NULL) return 0;
+	if (fd == 0) {
+		/// TODO: 표준 입력 (콘솔).  
+		// return 읽은 바이트 수
+		return input_getc();
+	}
+	if (pml4_get_page(t->pml4, buffer) == NULL)
+		exit(-1);
+
+	return -1;
+}
+
 int write (
     int fd,
     const void *buffer,
@@ -159,6 +178,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_OPEN:
 		file = (char *) f->R.rdi;
 		f->R.rax = open(file);
+		break;
+	case SYS_READ:
+		f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 	case SYS_WRITE:
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
