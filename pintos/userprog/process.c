@@ -208,11 +208,29 @@ int
 process_wait (tid_t child_tid UNUSED) {
 
 	/* XXX: 힌트) process_wait(initd)가 있으면 pintos가 종료되므로,
-	 * XXX:       process_wait를 구현하기 전에 여기에 무한 루프를 추가하는 것을 권장합니다. */
+	* XXX:       process_wait를 구현하기 전에 여기에 무한 루프를 추가하는 것을 권장합니다. */
 	thread_sleep(500);
-	// while(1) {
+	// struct thread *curr = thread_current();
 
-	// }
+	// char tid_str1[16];  // TID를 저장할 문자열 버퍼
+    // snprintf(tid_str1, sizeof(tid_str1), "%d", curr->tid); // TID를 문자열로 변환
+    // write(1, tid_str1, strlen(tid_str1)); // 변환된 문자열 출력
+    // write(1, "\n", 1);
+
+	// char tid_str2[16];  // TID를 저장할 문자열 버퍼
+    // snprintf(tid_str2, sizeof(tid_str2), "%d", child_tid); // TID를 문자열로 변환
+    // write(1, tid_str2, strlen(tid_str2)); // 변환된 문자열 출력
+    // write(1, "\n", 1);
+
+	// char tid_str3[16];  // TID를 저장할 문자열 버퍼
+    // snprintf(tid_str3, sizeof(tid_str3), "%d", curr->exit_status); // TID를 문자열로 변환
+    // write(1, tid_str3, strlen(tid_str3)); // 변환된 문자열 출력
+    // write(1, "\n", 1);
+
+	// if (curr->tid != child_tid || curr->tid < 1 ||  curr->exit_status != 0) 
+	// 	return -1;
+	// write(1, "passed 조건문\n", 11);
+	// sema_up(&curr->waiting_lock);
 	return -1;
 }
 
@@ -223,9 +241,10 @@ process_exit (void) {
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 프로세스 종료 메시지를 구현하세요 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. */
-	if (!curr->status) {
-		printf("%s: exit(0)\n", curr->name);
-	}
+	/* 자원 정리 */
+	if (curr->pml4 != NULL) 
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	
 
 	process_cleanup ();
 }
