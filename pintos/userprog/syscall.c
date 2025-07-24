@@ -79,6 +79,20 @@ bool create (const char *file, unsigned initial_size) {
 	return filesys_create(file, initial_size);
 }
 
+int open (const char *file) {
+	struct thread *t = thread_current();
+	
+	if (file == NULL)
+		exit(-1);
+
+	if (pml4_get_page(t->pml4, file) == NULL)
+		exit(-1);
+
+	if (strlen(file) == 0)
+	 	return -1;
+
+	return filesys_open(file);
+}
 
 int write (
     int fd,
@@ -111,6 +125,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	// printf ("system call!\n");
 	uint64_t sys_num = f->R.rax; // 시스템 콜 번호 가져오기
+	char *file;
 	/* f에서 전달 받은 argument들을 가져온다. */
 	switch (sys_num)
 	{
@@ -132,9 +147,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		exec(cmd_line);
 		break;
 	case SYS_CREATE:
-		char *file = (char *) f->R.rdi;
+		file = (char *) f->R.rdi;
 		unsigned initial_size = (unsigned) f->R.rsi;	
 		f->R.rax = create(file, initial_size);
+		break;
+	case SYS_OPEN:
+		file = (char *) f->R.rdi;
+		f->R.rax = open(file);
 		break;
 	case SYS_WRITE:
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
