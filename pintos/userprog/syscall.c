@@ -156,25 +156,51 @@ int read (int fd, const void *buffer, unsigned length) {
 }
 
 int write (int fd, const void *buffer, unsigned length) {
-	// 1. 접근 관점: fd의 상태에 따라 구현
-	// 2. 유저 메모리에 안전하게 접근 buffer가 유저 메모리 공간
-	//	  	helper 함수를 만들어 메모리를 검증하고 복사한다.
-	// 3. 동시성 고려: 내부적으로 공유 리소스를 건드릴 수 있음.
-	//		lock을 사용해 상호 배제(파일 시스템 작업할 때 락 필요)
-	// 4. 반환값의 의미를 생각해라: 에러 -1 or 실제로 쓴 바이트 수
-	// 5. 사이즈가 0인 경우
-	// 6. NULL 포인터인 경우
-	// 7. 이미 닫힌 fd를 참조하는 경우 (예외 처리)
-	// 8. fd 테이블에서 fd에 해당하는 파일 객체를 찾을 수 있는가? 검증 필요
-	if (fd <= 0 || length == 0 || buffer == NULL) return -1;
+	struct thread *t = thread_current();
+	struct file *write_file;
+
+	if (fd <= 0 || fd > 63 || length == 0 || buffer == NULL)
+		return 0;
+	
 	if (fd == 1) {
 		/// TODO: 표준 출력 (콘솔).  
 		// return 읽은 바이트 수
 		putbuf((char *) buffer, length);
 		return length;
 	}
-	return -1;
+
+	if (pml4_get_page(t->pml4, buffer) == NULL)
+		exit(-1);
+
+	if (fd > 2) {
+		if (t->fdt[fd] == NULL)
+			return 0;
+		write_file = t->fdt[fd];
+		return file_write(write_file, buffer, length);
+	}
+	
 }
+
+// int write (int fd, const void *buffer, unsigned length) {
+// 	// 1. 접근 관점: fd의 상태에 따라 구현
+// 	// 2. 유저 메모리에 안전하게 접근 buffer가 유저 메모리 공간
+// 	//	  	helper 함수를 만들어 메모리를 검증하고 복사한다.
+// 	// 3. 동시성 고려: 내부적으로 공유 리소스를 건드릴 수 있음.
+// 	//		lock을 사용해 상호 배제(파일 시스템 작업할 때 락 필요)
+// 	// 4. 반환값의 의미를 생각해라: 에러 -1 or 실제로 쓴 바이트 수
+// 	// 5. 사이즈가 0인 경우
+// 	// 6. NULL 포인터인 경우
+// 	// 7. 이미 닫힌 fd를 참조하는 경우 (예외 처리)
+// 	// 8. fd 테이블에서 fd에 해당하는 파일 객체를 찾을 수 있는가? 검증 필요
+// 	if (fd <= 0 || length == 0 || buffer == NULL) return -1;
+// 	if (fd == 1) {
+// 		/// TODO: 표준 출력 (콘솔).  
+// 		// return 읽은 바이트 수
+// 		putbuf((char *) buffer, length);
+// 		return length;
+// 	}
+// 	return -1;
+// }
 
 /* The main system call interface */
 void
