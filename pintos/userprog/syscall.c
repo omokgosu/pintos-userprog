@@ -9,9 +9,13 @@
 #include "intrinsic.h"
 #include "userprog/process.h" // fork() 때문에 추가
 #include "filesys/filesys.h"
+#include "threads/synch.h"
+#include "filesys/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+static struct lock filesys_lock;
 
 /* 시스템 콜.
  *
@@ -47,6 +51,7 @@ void halt() {
 
 void exit (int status) {
 	struct thread *t = thread_current();
+	t->is_exited = true;
 	t->exit_status = status;
 	
 	thread_exit();
@@ -81,7 +86,8 @@ bool create (const char *file, unsigned initial_size) {
 
 int open (const char *file) {
 	struct thread *t = thread_current();
-	
+	int fd;
+
 	if (file == NULL)
 		exit(-1);
 
@@ -90,39 +96,66 @@ int open (const char *file) {
 
 	if (strlen(file) == 0)
 	 	return -1;
-	
+		
 	struct file *opened_file = filesys_open(file);	
 
 	if (opened_file == NULL)
 		return -1;
 
-	return opened_file;
+	fd = t->next_fd++;
+	t->fdt[fd] = opened_file;
+
+	
+	return fd;
 }
 
-int read (
-    int fd,
-    const void *buffer,
-    unsigned length
-) {
+int filesize (int fd) {
 	struct thread *t = thread_current();
 
-	if (fd < 0 || length == 0 || buffer == NULL) return 0;
-	if (fd == 0) {
-		/// TODO: 표준 입력 (콘솔).  
-		// return 읽은 바이트 수
+	if (fd < 3 || fd > 63 || t->fdt[fd] == NULL)
+		return -1;
+	
+	return file_length(t->fdt[fd]);
+
+}
+
+void close (int fd) {
+	struct thread *t = thread_current();
+
+	if (fd < 0 || fd > 63)
+		exit(-1);
+
+	if (t->fdt[fd] == NULL)
+		return -1;
+
+	t->fdt[fd] = NULL;
+	t->next_fd--;
+
+}
+
+int read (int fd, const void *buffer, unsigned length) {
+	struct thread *t = thread_current();
+	struct file *read_file;
+
+	if (fd < 0 || fd > 63 || length == 0 || buffer == NULL)
+		return 0;
+	
+	if (fd == 0)
 		return input_getc();
-	}
+	
 	if (pml4_get_page(t->pml4, buffer) == NULL)
 		exit(-1);
 
-	return -1;
+	if (fd > 2) {
+		if (t->fdt[fd] == NULL)
+			return 0;
+		read_file = t->fdt[fd];
+		return file_read(read_file, buffer, length);
+	}
+		
 }
 
-int write (
-    int fd,
-    const void *buffer,
-    unsigned length
-) {
+int write (int fd, const void *buffer, unsigned length) {
 	// 1. 접근 관점: fd의 상태에 따라 구현
 	// 2. 유저 메모리에 안전하게 접근 buffer가 유저 메모리 공간
 	//	  	helper 함수를 만들어 메모리를 검증하고 복사한다.
@@ -150,6 +183,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// printf ("system call!\n");
 	uint64_t sys_num = f->R.rax; // 시스템 콜 번호 가져오기
 	char *file;
+	int fd;
 	/* f에서 전달 받은 argument들을 가져온다. */
 	switch (sys_num)
 	{
@@ -178,6 +212,14 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_OPEN:
 		file = (char *) f->R.rdi;
 		f->R.rax = open(file);
+		break;
+	case SYS_FILESIZE:
+		fd = (char *) f->R.rdi;
+		f->R.rax = filesize(fd);
+		break;
+	case SYS_CLOSE:
+		fd = f->R.rdi;
+		close(fd);
 		break;
 	case SYS_READ:
 		f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
