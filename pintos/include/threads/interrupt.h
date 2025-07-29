@@ -17,10 +17,10 @@ enum intr_level intr_disable (void);
 
 /* Interrupt stack frame. */
 struct gp_registers {
-	uint64_t r15;			/* Caller saved */
-	uint64_t r14;			/* Caller saved */
-	uint64_t r13;			/* Caller saved */
-	uint64_t r12;			/* Caller saved */
+	uint64_t r15;			/* Callee saved */
+	uint64_t r14;			/* Callee saved */
+	uint64_t r13;			/* Callee saved */
+	uint64_t r12;			/* Callee saved */
 	uint64_t r11;			/* Caller saved */
 	uint64_t r10;			/* Caller saved */
 	uint64_t r9;			/* 6th argument	*/

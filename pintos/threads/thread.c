@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include "filesys/file.h"
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -201,6 +202,16 @@ thread_create (const char *name, int priority,
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
+    t->fdt = calloc(512 , sizeof(struct file_descriptor*));
+
+    t->fdt[FD_STDIN] = calloc(1, sizeof(struct file_descriptor));
+    t->fdt[FD_STDIN]->fd = FD_STDIN;
+    t->fdt[FD_STDIN]->type = FD_STDIN;
+
+    t->fdt[FD_STDOUT] = calloc(1, sizeof(struct file_descriptor));
+    t->fdt[FD_STDOUT]->fd = FD_STDOUT;
+    t->fdt[FD_STDOUT]->type = FD_STDOUT;
+
 	/* 스케줄되면 kernel_thread를 호출합니다.
 	 * 참고) rdi는 첫 번째 인수이고, rsi는 두 번째 인수입니다. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -211,13 +222,18 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+    
+    /* project 2 부모 자식 연결 */
+    struct thread *parent = thread_current();
+    t->parent = parent;
+    list_push_back( &parent->child_list , &t->child_elem);
 
 	/* 실행 큐에 추가합니다. */
     enum intr_level old_level = intr_disable();
 	thread_unblock (t);
 
     /* 현재 쓰레드와 방금 입력된 쓰레드를 비교해서 실행 쓰레드를 갱신합니다. */
-    if ( thread_current()->priority < t->priority ) {
+    if ( parent->priority < t->priority ) {
         intr_set_level(old_level);
         thread_yield();
     } else {
@@ -608,16 +624,27 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	memset (t, 0, sizeof *t);
 	t->status = THREAD_BLOCKED;
+
 	strlcpy (t->name, name, sizeof t->name);
-	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
+	
+    t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
     t->magic = THREAD_MAGIC;
 
     /* proejct 1.3 priority_donation을 위한 쓰레드 구조체 초기화 */
     t->origin_priority = priority;
 	t->waiting_lock = NULL;
-
     list_init( &t->donation_list );
+    
+    /* project 2 를 위한 구조체 초기화 */
+    t->fdt = NULL;
+    t->parent = NULL;
+    t->running_file = NULL;
+    sema_init( &t->exec_sema , 0);
+    sema_init( &t->exit_sema , 0);
+    sema_init( &t->fork_sema , 0);
+    sema_init( &t->wait_sema , 0);
+    list_init( &t->child_list );
 }
 
 /* 스케줄될 다음 스레드를 선택하고 반환합니다. 실행 큐가 비어있지 않다면
