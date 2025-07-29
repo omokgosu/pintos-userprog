@@ -14,6 +14,7 @@
 #include "filesys/directory.h"
 #include <string.h>
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -159,7 +160,7 @@ bool remove (const char *file) {
 
 int open (const char *file) {
 	struct thread *t = thread_current();
-	int fd;
+	int fd = 0;
 
 	if (file == NULL)
 		exit(-1);
@@ -175,8 +176,14 @@ int open (const char *file) {
 	if (opened_file == NULL)
 		return -1;
 
-	fd = t->next_fd++;
-	t->fdt[fd] = opened_file;
+	//fd = t->next_fd++;
+	while (t->fdt[fd] != NULL) {
+		fd++;
+	}
+	
+	t->fdt[fd] = malloc(sizeof(struct fdt_entry));
+	t->fdt[fd]->type = FILE;
+	t->fdt[fd]->entry = opened_file;
 
 	return fd;
 }
@@ -184,25 +191,26 @@ int open (const char *file) {
 int filesize (int fd) {
 	struct thread *t = thread_current();
 
-	if (fd < 3 || fd > 63 || t->fdt[fd] == NULL)
+	if (fd < 3 || fd > 128 || t->fdt[fd] == NULL)
 		return -1;
 	
-	return file_length(t->fdt[fd]);
+	return file_length(t->fdt[fd]->entry);
 
 }
 
 void close (int fd) {
 	struct thread *t = thread_current();
 
-	if (fd < 0 || fd > 63)
+	if (fd < 0 || fd > 128)
 		exit(-1);
 
 	if (t->fdt[fd] == NULL)
 		return -1;
 
+	file_close(t->fdt[fd]->entry);
+	free(t->fdt[fd]);
 	t->fdt[fd] = NULL;
-	t->next_fd--;
-
+	
 }
 
 int read (int fd, const void *buffer, unsigned length) {
@@ -221,7 +229,7 @@ int read (int fd, const void *buffer, unsigned length) {
 	if (fd > 2) {
 		if (t->fdt[fd] == NULL)
 			return 0;
-		read_file = t->fdt[fd];
+		read_file = t->fdt[fd]->entry;
 		return file_read(read_file, buffer, length);
 	}
 		
@@ -231,7 +239,7 @@ int write (int fd, const void *buffer, unsigned length) {
 	struct thread *t = thread_current();
 	struct file *write_file;
 
-	if (fd <= 0 || fd > 63 || length == 0 || buffer == NULL)
+	if (fd <= 0 || fd > 128 || length == 0 || buffer == NULL)
 		return 0;
 	
 	if (fd == 1) {
@@ -247,7 +255,7 @@ int write (int fd, const void *buffer, unsigned length) {
 	if (fd > 2) {
 		if (t->fdt[fd] == NULL)
 			return 0;
-		write_file = t->fdt[fd];
+		write_file = t->fdt[fd]->entry;
 		return file_write(write_file, buffer, length);
 	}
 
@@ -259,7 +267,7 @@ void seek (int fd, unsigned position) {
 	if (t->fdt[fd] == NULL)
 		return 0;
 
-	struct file *opened_file = t->fdt[fd];
+	struct file *opened_file = t->fdt[fd]->entry;
 
 	file_seek(opened_file, (off_t) position);
 
@@ -271,7 +279,7 @@ unsigned tell (int fd) {
 	if (t->fdt[fd] == NULL)
 		return 0;
 
-	struct file *opened_file = t->fdt[fd];
+	struct file *opened_file = t->fdt[fd]->entry;
 
 	return file_tell(opened_file);
 }

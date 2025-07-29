@@ -10,6 +10,7 @@ lg-seq-random PASS
 syn-write PASS
 syn-remove PASS
 priority-donate-one PASS
+dup2-simple FAIL
 create-normal PASS
 priority-donate-lower PASS
 bad-write PASS
@@ -17,18 +18,19 @@ open-twice PASS
 exec-arg PASS
 exec-missing PASS
 read-bad-ptr PASS
+dup2-complex FAIL
 create-long PASS
 priority-preempt PASS
 fork-close PASS
 alarm-simultaneous PASS
 fork-boundary PASS
 priority-donate-chain PASS
-rox-multichild FAIL
+rox-multichild PASS
 create-bound PASS
 lg-random PASS
 priority-condvar PASS
 priority-donate-nest PASS
-rox-child FAIL
+rox-child PASS
 alarm-single PASS
 read-normal PASS
 priority-donate-multiple2 PASS
@@ -63,6 +65,7 @@ fork-recursive PASS
 open-bad-ptr PASS
 write-normal PASS
 bad-read PASS
+multi-oom FAIL
 fork-once PASS
 priority-change PASS
 write-boundary PASS

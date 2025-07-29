@@ -188,19 +188,20 @@ __do_fork (void *aux) {
     * TODO:       부모는 이 함수가 부모의 자원을 성공적으로 복제할 때까지
     * TODO:       fork()에서 반환하지 않아야 합니다. */
 
-	// if_.R.rbx = parent_if->R.rbx;
-	// if_.rsp = parent_if->rsp;
-	// if_.R.rbp = parent_if->R.rbp;
-	// if_.R.r12 = parent_if->R.r12;
-	// if_.R.r13 = parent_if->R.r13;
-	// if_.R.r14 = parent_if->R.r14;
-	// if_.R.r15 = parent_if->R.r15;
 
-    for (int i = 3; parent->fdt[i] != NULL; i++) {
-		if ((current->fdt[i] = file_duplicate(parent->fdt[i])) == NULL)
-			goto error;
+    // for (int i = 3; parent->fdt[i] != NULL; i++) {
+	// 	if ((current->fdt[i]->entry = file_duplicate(parent->fdt[i]->entry)) == NULL)
+	// 		goto error;
+	// }
+	for (int fd = 0; fd < 128; fd++) {
+		if (parent->fdt[fd] != NULL && parent->fdt[fd]->type == 1) { // FILE 의미가 겹쳐서 여기서만 1로 사용
+			current->fdt[fd] = calloc(1, sizeof(struct fdt_entry));
+			current->fdt[fd]->type = 1;
+			current->fdt[fd]->entry = file_duplicate(parent->fdt[fd]->entry);
+		}
 	}
-	current->next_fd = parent->next_fd; // 얘 추가해줘야 fdt 상황과 next_fd가 서로 맞음
+
+	//current->next_fd = parent->next_fd; // 얘 추가해줘야 fdt 상황과 next_fd가 서로 맞음
 
 	if_.R.rax = 0;
 
@@ -309,6 +310,7 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+	int fd = 0;
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 프로세스 종료 메시지를 구현하세요 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. */
@@ -329,6 +331,15 @@ process_exit (void) {
 
 	// 	p = next;
 	// }
+	if (curr->exec_file != NULL) {
+		file_close(curr->exec_file);
+		curr->exec_file = NULL;
+	}
+	// for (fd = 0; fd < sizeof(curr->fdt)/sizeof(void *); fd++) {
+	// 	if (curr->fdt[fd]->type == 1) // FILE 의미가 겹쳐서 여기서만 1로 사용
+	// 		file_close(curr->fdt[fd]->entry);
+	// }
+	
 
 	process_cleanup ();
 }
@@ -546,7 +557,10 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
     /* 로드가 성공했든 실패했든 여기에 도달합니다. */
 	//file_close (file); // 이거 대신에
-	file_deny_write(file); // 실행중인 파일에 대한 쓰기 거부
+	if (file != NULL) {
+		t->exec_file = file;
+		file_deny_write(file);
+	} // 실행중인 파일에 대한 쓰기 거부
 	return success;
 }
 
