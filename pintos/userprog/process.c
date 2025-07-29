@@ -1,6 +1,8 @@
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #include <debug.h>
 #include <inttypes.h>
+#include <list.h>
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,12 +30,33 @@ static void initd (void *f_name);
 static void __do_fork (void *);
 static void init_stack_frame(struct intr_frame *if_, char **argv, int argc); // 필요하면 직접 구현
 static void copy_to_user(struct intr_frame *if_, void *argv, int size);
+static struct thread* find_child (struct list *list , int child_tid);
+/* 자식 쓰레드를 찾기 위한 커스텀 함수 */
+static struct thread*
+find_child (struct list *list, int child_tid) {
+    struct list_elem *e;
+    e = list_begin( list );
 
+    while ( e != list_end( list )) {
+        struct list_elem *next = list_next(e);
+        struct thread *current = list_entry(e, struct thread, child_elem);
+
+        if ( current->tid == child_tid ) {
+            return current;
+        }
+
+        e = next;
+    }
+
+    return NULL;
+}
 
 /* initd와 다른 프로세스를 위한 일반적인 프로세스 초기화 함수. */
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
+
+
 }
 
 /* FILE_NAME에서 로드된 "initd"라는 첫 번째 사용자 프로그램을 시작합니다.
@@ -55,7 +78,7 @@ process_create_initd (const char *file_name) {
 
 	/* for file_name 15자 제한 */
 	strtok_r(file_name, " ", &tmp_ptr);
-	
+
 	/* FILE_NAME을 실행할 새로운 스레드를 생성합니다. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -80,10 +103,27 @@ initd (void *f_name) {
 /* 현재 프로세스를 `name`으로 복제합니다. 새 프로세스의 스레드 ID를 반환하거나,
  * 스레드를 생성할 수 없으면 TID_ERROR를 반환합니다. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
-	/* 현재 스레드를 새 스레드로 복제합니다. */
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+process_fork (const char *name, struct intr_frame *if_) {
+    
+    struct thread *current = thread_current();
+
+    memcpy(&current->parent_if , if_ , sizeof(struct intr_frame));
+
+    /* 자식 쓰레드 생성 */
+    tid_t child_tid = thread_create (name, PRI_DEFAULT, __do_fork, thread_current());
+    if ( child_tid == TID_ERROR) {
+        return TID_ERROR;
+    }
+
+    /* 자식 찾아서 기다림 */
+    struct thread* child_t = find_child( &current->child_list , child_tid);
+    if ( child_t == NULL ) {
+        return TID_ERROR;
+    }
+
+    sema_down( &child_t->fork_sema );
+
+    return child_tid;
 }
 
 #ifndef VM
@@ -98,20 +138,30 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: parent_page가 커널 페이지라면, 즉시 반환합니다. */
+    if ( is_kern_pte(pte) ) return true;
 
 	/* 2. 부모의 페이지 맵 레벨 4에서 VA를 해석합니다. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
 	/* 3. TODO: 자식을 위한 새로운 PAL_USER 페이지를 할당하고 결과를
 	 *    TODO: NEWPAGE에 설정합니다. */
+    newpage = palloc_get_page(PAL_USER);
 
 	/* 4. TODO: 부모의 페이지를 새 페이지로 복제하고
 	 *    TODO: 부모의 페이지가 쓰기 가능한지 확인합니다 (결과에 따라
 	 *    TODO: WRITABLE을 설정합니다). */
+    memcpy(newpage , parent_page, PGSIZE);
+    if ( is_writable(pte) ){
+        writable = 1;
+    } else {
+        writable = 0;
+    } 
 
 	/* 5. WRITABLE 권한으로 주소 VA에 새 페이지를 자식의 페이지 테이블에 추가합니다. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: 페이지 삽입에 실패하면, 오류 처리를 수행합니다. */
+        palloc_free_page(newpage);
+        return false;
 	}
 	return true;
 }
@@ -123,14 +173,16 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = (struct thread*) aux;
 	struct thread *current = thread_current ();
+
 	/* TODO: 어떻게든 parent_if를 전달합니다. (즉, process_fork()의 if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = &parent->parent_if;
 	bool succ = true;
 
 	/* 1. CPU 컨텍스트를 로컬 스택에 읽습니다. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+    if_.R.rax = 0; /* 자식 fork 의 반환값은 0 */
 
 	/* 2. PT를 복제합니다 */
 	current->pml4 = pml4_create();
@@ -151,12 +203,28 @@ __do_fork (void *aux) {
     * TODO: 힌트) 파일 객체를 복제하려면 include/filesys/file.h의 `file_duplicate`를 사용하세요.
     * TODO:       부모는 이 함수가 부모의 자원을 성공적으로 복제할 때까지
     * TODO:       fork()에서 반환하지 않아야 합니다. */
-	process_init ();
+    process_init ();
 
-	/* 마지막으로, 새로 생성된 프로세스로 전환합니다. */
+    for ( int i = 2; i < FDT_CNT; i++ ) {
+        if ( parent->fdt[i] && parent->fdt[i]->type == FD_FILE ) {
+            current->fdt[i] = calloc(1,sizeof(struct file_descriptor)); 
+            
+            current->fdt[i]->fd = parent->fdt[i]->fd;
+            current->fdt[i]->type = parent->fdt[i]->type;
+            current->fdt[i]->file = file_duplicate(parent->fdt[i]->file);
+        }
+    }
+
+	
+    /* 마지막으로, 새로 생성된 프로세스로 전환합니다. */
 	if (succ)
+        sema_up( &current->fork_sema );
 		do_iret (&if_);
+
 error:
+    current->exit_status == TID_ERROR;
+    current->exited = true;
+    sema_up( &current->fork_sema);
 	thread_exit ();
 }
 
@@ -164,7 +232,7 @@ error:
  * 실패 시 -1을 반환합니다. */
 int
 process_exec (void *f_name) {
-	char *file_name = f_name;
+    char *file_name = f_name;
 	bool success;
 	int kb = 1024 * 4;
 
@@ -181,8 +249,8 @@ process_exec (void *f_name) {
 
 	/* 먼저 현재 컨텍스트를 종료합니다 */
 	process_cleanup ();
-
-	/* 그리고 바이너리를 로드합니다 */
+	
+    /* 그리고 바이너리를 로드합니다 */
 	success = load (file_name, &_if);
 
 	/* 로드가 실패하면 종료합니다. */
@@ -207,13 +275,34 @@ process_exec (void *f_name) {
 int
 process_wait (tid_t child_tid UNUSED) {
 
-	/* XXX: 힌트) process_wait(initd)가 있으면 pintos가 종료되므로,
-	 * XXX:       process_wait를 구현하기 전에 여기에 무한 루프를 추가하는 것을 권장합니다. */
-	thread_sleep(500);
-	// while(1) {
+    struct thread *t = thread_current();
+    struct thread *child_t = NULL;
+    struct list_elem *e;
 
-	// }
-	return -1;
+    /* 0. child_tid 를 기준으로 부모의 자식리스트를 확인함 */
+    child_t = find_child( &t->child_list , child_tid);
+
+    /* 1. child의 tid 가 현재 프로세스의 자식이 아닌가? -1 반환 */
+    if ( child_t == NULL ) return -1;
+    
+    // * 2. 이미 이 child_tid 를 wait 한 적이 있는가? -1 반환 */
+    if ( child_t->has_been_waited ) return -1;
+    
+    /* 3. pid가 아직 살아있는가? -> 종료될때까지 기다림 */
+    if ( !child_t->exited ) {
+        child_t->has_been_waited = true;
+        sema_down(&child_t->wait_sema);
+    }
+
+    /* 4. 자식의 메모리/리소스 해제 */
+    int child_exit_status = child_t->exit_status;
+    list_remove(&child_t->child_elem);
+    
+    /* 5. 자식 죽게 냅둬 */
+    sema_up( &child_t->exit_sema );
+
+    /* 6. 자식의 exit_status 반환 */
+	return child_t->exit_status;
 }
 
 /* 현재 프로세스의 리소스를 해제합니다. */
@@ -222,12 +311,36 @@ process_exit (void) {
 	struct thread *curr = thread_current ();
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 프로세스 종료 메시지를 구현하세요 (project2/process_termination.html 참조).
-	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. */
-	if (!curr->status) {
-		printf("%s: exit(0)\n", curr->name);
+	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. 
+    */
+
+     /* 1. 사용자 프로세스인 경우만 종료 메세지 출력 */
+	if ( curr->pml4 ) {
+        printf("%s: exit(%d)\n", curr->name , curr->exit_status);
 	}
 
+    /* 2. 자식 본인의 리소스 정리 */
 	process_cleanup ();
+
+    for ( int i = 2; i < FDT_CNT; i++ ) {
+        if ( curr->fdt[i] == NULL ) {
+            continue;
+        }
+        
+        lock_acquire(&filesys_lock);
+        file_close(curr->fdt[i]->file);        
+        lock_release(&filesys_lock);
+
+        free(thread_current()->fdt[i]);
+    }
+
+    free(curr->fdt);
+    
+    /* 3. 기다리고 있는 부모 쓰레드가 있다면 깨워주기 */
+    sema_up(&curr->wait_sema);
+
+    /* 4. 부모가 내 리소스 정보를 알 때까지 잠시 대기 */
+    sema_down(&curr->exit_sema);
 }
 
 /* 현재 프로세스의 리소스를 해제합니다. */
@@ -238,6 +351,10 @@ process_cleanup (void) {
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
 #endif
+    if ( curr->running_file != NULL ) {
+        file_close(curr->running_file);
+        curr->running_file = NULL;
+    }
 
 	uint64_t *pml4;
 	/* 현재 프로세스의 페이지 디렉터리를 파괴하고 커널 전용
@@ -354,12 +471,15 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* 실행 파일을 엽니다. */
 	file = filesys_open (file_name);
-	if (file == NULL) {
+    if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
-
-	/* 실행 파일 헤더를 읽고 검증합니다. */
+    
+    t->running_file = file;
+    file_deny_write(file);
+	
+    /* 실행 파일 헤더를 읽고 검증합니다. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
 			|| memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7)
 			|| ehdr.e_type != 2
@@ -439,10 +559,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	init_stack_frame(if_, argv, argc);
 	
 	success = true;
-
 done:
     /* 로드가 성공했든 실패했든 여기에 도달합니다. */
-	file_close (file);
 	return success;
 }
 
@@ -459,7 +577,7 @@ static void init_stack_frame(struct intr_frame *if_, char **argv, int argc) {
 		copy_to_user(if_, a, size);
 		// memcpy(if_->rsp, a, size); /* 미리 계산한 주소에 a를 size만큼 값을 넣는다. */
 		argv_address_list[i] = if_->rsp;
-	}
+    }
 
 	/* double world align */
 	padding = if_->rsp % 8;
@@ -494,7 +612,6 @@ static void copy_to_user(struct intr_frame *if_, void *argv, int size) {
 	else
 		memcpy(if_->rsp, (char *)argv, size);	
 }
-
 
 /* PHDR이 FILE에서 유효하고 로드 가능한 세그먼트를 설명하는지 확인하고,
  * 그렇다면 true를, 그렇지 않다면 false를 반환합니다. */

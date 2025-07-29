@@ -103,10 +103,16 @@ struct thread {
     struct lock *waiting_lock;          /* 내가 기다리고 있는 락 */
 
     /* proejct 2 를 위한 구조체 */
+    struct thread *parent;              /* 부모가 누군지 알아야 한대 */
+
     int exit_status;                    /* 프로세스 종료 코드 */
+    bool exited;                        /* 종료 여부 */
+    bool has_been_waited;               /* 이미 부모가 wait 중인지 여부 */
     
+    // struct semaphore wait_list;         /* 부모가 자식이 종료하는걸 대기할 때 쓰는 세마포어 */
+
     struct list child_list;             /* 자식 프로세스의 리스트 */
-    struct list_elem child_emel;        /* 자식 프로세스가 부모 프로세스에 포함되기 위한 구조체? */
+    struct list_elem child_elem;        /* 현재 쓰레드가 어떤 부모의 자식으로 들어가기위한 elem */
 
 #ifdef USERPROG
 	/* userprog/process.c가 소유 */
