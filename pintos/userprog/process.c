@@ -22,8 +22,9 @@
 #include "vm/vm.h"
 #endif
 
+
 static void process_cleanup (void);
-static bool load (const char *file_name, struct intr_frame *if_);
+//static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 static void init_stack_frame(struct intr_frame *if_, char **argv, int argc); // 필요하면 직접 구현
@@ -73,17 +74,40 @@ initd (void *f_name) {
 	process_init ();
 
 	if (process_exec (f_name) < 0)
-		PANIC("Fail to launch initd\n");
+		//PANIC("Fail to launch initd\n");
+		exit(-1);
 	NOT_REACHED ();
 }
 
 /* 현재 프로세스를 `name`으로 복제합니다. 새 프로세스의 스레드 ID를 반환하거나,
  * 스레드를 생성할 수 없으면 TID_ERROR를 반환합니다. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+process_fork (const char *name, struct intr_frame *if_ ) {
 	/* 현재 스레드를 새 스레드로 복제합니다. */
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *t = thread_current();
+	memcpy(&t->fork_if, if_, sizeof(struct intr_frame));
+
+	tid_t child_tid = thread_create (name, PRI_DEFAULT, __do_fork, t);
+
+	sema_down(&t->fork_sema);
+
+	if (child_tid != TID_ERROR) {
+		struct list_elem *p = list_begin(&t->child_list);
+
+		while ( p != list_end(&t->child_list) ) {
+			struct list_elem *next = list_next(p);
+			struct thread *child_thread = list_entry(p, struct thread, child_elem);
+
+			if (child_thread->tid == child_tid) {
+				//sema_down(&child_thread->fork_sema); 여기서 기다리면 여기까지 오기전에 자식 스레드로의 컨텍스트 스위칭이 일어날 수 있음
+				return child_tid;
+			}
+
+			p = next;
+		}
+	}
+
+	return child_tid;
 }
 
 #ifndef VM
@@ -99,25 +123,25 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 
 	/* 1. TODO: parent_page가 커널 페이지라면, 즉시 반환합니다. */
 	if (is_kernel_vaddr(va)) {
-		return false;
+		return true;
 	}
 
 	/* 2. 부모의 페이지 맵 레벨 4에서 VA를 해석합니다. */
-	parent_page = pml4_get_page (parent->pml4, va);
+	parent_page = pml4_get_page (parent->pml4, va); // 처음에 있던 구문
 
 	/* 3. TODO: 자식을 위한 새로운 PAL_USER 페이지를 할당하고 결과를
 	 *    TODO: NEWPAGE에 설정합니다. */
-	newpage = palloc_get_page(PAL_USER);
+	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
 
 	/* 4. TODO: 부모의 페이지를 새 페이지로 복제하고
 	 *    TODO: 부모의 페이지가 쓰기 가능한지 확인합니다 (결과에 따라
 	 *    TODO: WRITABLE을 설정합니다). */
 
 	memcpy (newpage, parent_page, PGSIZE);
-	writable = is_writable((uint64_t *)va);
+	writable = is_writable(pte); // 지금까지 가상주소에 물리주소 넣고있었던건가..?
 	
 	/* 5. WRITABLE 권한으로 주소 VA에 새 페이지를 자식의 페이지 테이블에 추가합니다. */
-	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
+	if (!pml4_set_page (current->pml4, va, newpage, writable)) { // 처음에 있던 구문
 		/* 6. TODO: 페이지 삽입에 실패하면, 오류 처리를 수행합니다. */
 		palloc_free_page(newpage);
 		return false;
@@ -132,22 +156,16 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = aux;
 	struct thread *current = thread_current ();
 	/* TODO: 어떻게든 parent_if를 전달합니다. (즉, process_fork()의 if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = &parent->fork_if;
 	bool succ = true;
-
-	parent_if->R.rbx = &(parent->tf).R.rbx;
-	parent_if->rsp = &(parent->tf).rsp;
-	parent_if->R.rbp = &(parent->tf).R.rbp;
-	parent_if->R.r12 = &(parent->tf).R.r12;
-	parent_if->R.r13 = &(parent->tf).R.r13;
-	parent_if->R.r14 = &(parent->tf).R.r14;
-	parent_if->R.r15 = &(parent->tf).R.r15;
+	
 
 	/* 1. CPU 컨텍스트를 로컬 스택에 읽습니다. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	
 
 	/* 2. PT를 복제합니다 */
 	current->pml4 = pml4_create();
@@ -155,6 +173,7 @@ __do_fork (void *aux) {
 		goto error;
 
 	process_activate (current);
+
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
@@ -168,13 +187,34 @@ __do_fork (void *aux) {
     * TODO: 힌트) 파일 객체를 복제하려면 include/filesys/file.h의 `file_duplicate`를 사용하세요.
     * TODO:       부모는 이 함수가 부모의 자원을 성공적으로 복제할 때까지
     * TODO:       fork()에서 반환하지 않아야 합니다. */
-   
+
+	// if_.R.rbx = parent_if->R.rbx;
+	// if_.rsp = parent_if->rsp;
+	// if_.R.rbp = parent_if->R.rbp;
+	// if_.R.r12 = parent_if->R.r12;
+	// if_.R.r13 = parent_if->R.r13;
+	// if_.R.r14 = parent_if->R.r14;
+	// if_.R.r15 = parent_if->R.r15;
+
+    for (int i = 3; parent->fdt[i] != NULL; i++) {
+		if ((current->fdt[i] = file_duplicate(parent->fdt[i])) == NULL)
+			goto error;
+	}
+	current->next_fd = parent->next_fd; // 얘 추가해줘야 fdt 상황과 next_fd가 서로 맞음
+
+	if_.R.rax = 0;
+
+	//sema_up(&current->fork_sema);
+	sema_up(&parent->fork_sema);
+
 	process_init ();
 
 	/* 마지막으로, 새로 생성된 프로세스로 전환합니다. */
 	if (succ)
 		do_iret (&if_);
 error:
+	//sema_up(&current->fork_sema);
+	sema_up(&parent->fork_sema);
 	thread_exit ();
 }
 
@@ -205,8 +245,6 @@ process_exec (void *f_name) {
 	//hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 	/* 로드가 실패하면 종료합니다. */
 	palloc_free_page (file_name);
-
-	sema_up(&thread_current()->parent_process->exec_sema);
 
 	if (!success)
 		return -1;
@@ -249,7 +287,15 @@ process_wait (tid_t child_tid UNUSED) {
 		struct thread *child_thread = list_entry(p, struct thread, child_elem);
 
 		if (child_thread->tid == child_tid) {
-			sema_down(&child_thread->wait_sema);
+			if (child_thread->is_waited)
+				return -1;
+			
+			if (!child_thread->is_exited) {
+				child_thread->is_waited = true;
+				sema_down(&child_thread->wait_sema);
+				sema_up(&child_thread->exit_sema); // 비몽사몽..
+			}
+
 			return child_thread->exit_status;
 		}
 
@@ -267,8 +313,22 @@ process_exit (void) {
 	 * TODO: 프로세스 종료 메시지를 구현하세요 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 리소스 정리를 구현하는 것을 권장합니다. */
 
-	if ((curr->pml4) != NULL && curr->parent_process->tid == 1)
+	if ((curr->pml4) != NULL)
 		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+
+	
+	// struct list_elem *p; = list_begin(&t->child_list);
+
+	// while ( p != list_end(&t->child_list) ) {
+	// 	struct list_elem *next = list_next(p);
+	// 	struct thread *child_thread = list_entry(p, struct thread, child_elem);
+
+	// 	if (child_thread != NULL) {
+			
+	// 	}
+
+	// 	p = next;
+	// }
 
 	process_cleanup ();
 }
@@ -372,7 +432,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * 실행 파일의 진입점을 *RIP에 저장하고
  * 초기 스택 포인터를 *RSP에 저장합니다.
  * 성공하면 true를, 그렇지 않으면 false를 반환합니다. */
-static bool
+bool
 load (const char *file_name, struct intr_frame *if_) {
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
@@ -485,7 +545,8 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
     /* 로드가 성공했든 실패했든 여기에 도달합니다. */
-	file_close (file);
+	//file_close (file); // 이거 대신에
+	file_deny_write(file); // 실행중인 파일에 대한 쓰기 거부
 	return success;
 }
 

@@ -13,11 +13,13 @@
 #include "filesys/file.h"
 #include "filesys/directory.h"
 #include <string.h>
+#include "threads/palloc.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
 static struct lock filesys_lock;
+
 
 /* 시스템 콜.
  *
@@ -43,6 +45,8 @@ syscall_init (void) {
 	 * 따라서 FLAG_FL을 마스크했습니다. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+
+	lock_init(&filesys_lock);
 }
 
 
@@ -53,11 +57,10 @@ void halt() {
 
 void exit (int status) {
 	struct thread *t = thread_current();
-	t->is_exited = true;
+	// t->is_waited = false;
+	// t->is_exited = true;
 	t->exit_status = status;
 	//t->parent_process->exit_status = status;
-	
-	sema_up(&thread_current()->wait_sema); // 위치 여기 아닐수도 있음
 
 	thread_exit();
 
@@ -65,37 +68,59 @@ void exit (int status) {
 	// 	printf("%s: exit(%d)\n", t->name, t->exit_status);
 }
 
-tid_t fork (const char *thread_name) {
-	struct thread *t = thread_current();
 
-	return process_fork(thread_name, &t->tf);
+// ------- fork 이전 버전 -> 나중에 정리할 때 쓰시오 ----------
 
+// tid_t fork (const char *thread_name) {
+// 	struct list_elem *p;
+// 	struct thread *t = thread_current();
+
+// 	tid_t child_tid = process_fork(thread_name, &t->tf);
+
+// 	if (child_tid == TID_ERROR)
+// 		exit(-1);
+
+// 	p = list_begin(&t->child_list);
+
+// 	while ( p != list_end(&t->child_list) ) {
+// 		struct list_elem *next = list_next(p);
+// 		struct thread *child_thread = list_entry(p, struct thread, child_elem);
+
+// 		if (child_thread->tid == child_tid) {
+// 			sema_down(&child_thread->fork_sema);
+// 			return child_tid;
+// 		}
+
+// 		p = next;
+// 	}
+
+// 	// if (t->parent_process->tid != 1) // 솔직히 이건 진짜 땜질인듯 (자식 프로세스가 fork하는거 무효화)
+// 	// 	return 0; // 이 부분을 대체하는 것이 __do_fork에 있는 R.rax = 0이다
+
+// 	return child_tid;
+
+// }
+
+tid_t fork (const char *thread_name, struct intr_frame *f) {
+
+	return process_fork(thread_name, f);
 }
 
-
 int exec (const char *cmd_line) {
-	// char *file_name, *tmp_ptr;
-	// struct inode *inode = NULL;
+	struct thread *t = thread_current();
 
-	if (pml4_get_page(thread_current()->pml4, cmd_line) == NULL)
+	if (cmd_line == NULL)
 		exit(-1);
 
-	// file_name = palloc_get_page (0);
-	// if (file_name == NULL)
-	// 	exit(-1);
-	// memcpy(file_name, cmd_line, strcspn(cmd_line, " "));
+	if (pml4_get_page(t->pml4, cmd_line) == NULL)
+		exit(-1);
 
-	// if (!dir_lookup(dir_open_root(), file_name, &inode))
-	// 	exit(-1);
+	char *cmd_line_copy = palloc_get_page (0); // cmd_line 그냥넣으면 로드할 때 그 주소로 액세스 불가능해서 터짐
+	strlcpy(cmd_line_copy, cmd_line, PGSIZE);
 
-	tid_t child_tid = process_create_initd(cmd_line);
-
-	if (child_tid == TID_ERROR)
+	if (process_exec(cmd_line_copy) == -1)
 		exit(-1);
 	
-	sema_down(&thread_current()->exec_sema);
-
-	exit(wait(child_tid));
 }
 
 int wait (tid_t pid) {
@@ -117,6 +142,20 @@ bool create (const char *file, unsigned initial_size) {
 
 	return filesys_create(file, initial_size);
 }
+
+bool remove (const char *file) {
+	struct thread *t = thread_current();
+	
+	if (file == NULL)
+		exit(-1);
+
+	if (pml4_get_page(t->pml4, file) == NULL)
+		exit(-1);
+
+	return filesys_remove(file);
+
+}
+
 
 int open (const char *file) {
 	struct thread *t = thread_current();
@@ -214,6 +253,30 @@ int write (int fd, const void *buffer, unsigned length) {
 
 }
 
+void seek (int fd, unsigned position) {
+	struct thread *t = thread_current();
+
+	if (t->fdt[fd] == NULL)
+		return 0;
+
+	struct file *opened_file = t->fdt[fd];
+
+	file_seek(opened_file, (off_t) position);
+
+}
+
+unsigned tell (int fd) {
+	struct thread *t = thread_current();
+
+	if (t->fdt[fd] == NULL)
+		return 0;
+
+	struct file *opened_file = t->fdt[fd];
+
+	return file_tell(opened_file);
+}
+
+
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
@@ -236,7 +299,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		break;
 	case SYS_FORK:
 		char *thread_name = (char *) f->R.rdi;
-		fork(thread_name);
+		f->R.rax = fork(thread_name, f);
 		break;
 	case SYS_EXEC:
 		char *cmd_line = (char *) f->R.rdi;
@@ -251,6 +314,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		unsigned initial_size = (unsigned) f->R.rsi;	
 		f->R.rax = create(file, initial_size);
 		break;
+	case SYS_REMOVE:
+		file = (char *) f->R.rdi;	
+		f->R.rax = remove(file);
+		break;		
 	case SYS_OPEN:
 		file = (char *) f->R.rdi;
 		f->R.rax = open(file);
@@ -269,7 +336,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_WRITE:
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
-
+	case SYS_SEEK:
+		seek(f->R.rdi, f->R.rsi);
+		break;
+	case SYS_TELL:
+		f->R.rax = tell(f->R.rdi);
+		break;
 	default:
 		thread_exit ();
 	}
