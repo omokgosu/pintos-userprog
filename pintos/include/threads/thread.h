@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -103,10 +104,29 @@ struct thread {
     struct lock *waiting_lock;          /* 내가 기다리고 있는 락 */
 
     /* proejct 2 를 위한 구조체 */
+    /*  file  */
+    struct file_descriptor** fdt;       /* 파일 디스크립터 테이블 */
+    int next_fd;                        /* 파일 디스크립터*/
+
+    /*  exec  */
+    struct semaphore exec_sema;         /* 복제 될 때까지 기다리는..? */
+    struct file* running_file;          /* 현재 실행중인 파일 */
+
+    /*  exit  */
+    struct semaphore exit_sema;         /* 부모가 리소스 회수할 때 까지 자식이 대기 */
     int exit_status;                    /* 프로세스 종료 코드 */
+    bool exited;                        /* 종료 여부 */
     
+    /*  fork  */
+    struct semaphore fork_sema;         /* 자식 실행파일이 로드 되길 기다리는 세마포어 */
+    struct intr_frame parent_if;        /* fork 함수 자식으로 넘겨줄 정보 */
+
+    /*  wait  */
+    struct semaphore wait_sema;         /* 자식이 종료를 알릴 세마포어 자식이 해당 세마포어를 + 해줌 */
+    struct thread *parent;              /* 부모가 누군지 알아야 한대 */
     struct list child_list;             /* 자식 프로세스의 리스트 */
-    struct list_elem child_emel;        /* 자식 프로세스가 부모 프로세스에 포함되기 위한 구조체? */
+    struct list_elem child_elem;        /* 현재 쓰레드가 어떤 부모의 자식으로 들어가기위한 elem */
+    bool has_been_waited;               /* 이미 부모가 wait 중인지 여부 */
 
 #ifdef USERPROG
 	/* userprog/process.c가 소유 */

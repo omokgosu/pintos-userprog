@@ -230,12 +230,12 @@ strtok_r (char *s, const char *delimiters, char **save_ptr) {
 	token = s;
 	while (strchr (delimiters, *s) == NULL)
 		s++;
-	if (*s != '\0') {
-		*s = '\0';
-		*save_ptr = s + 1;
-	} else
-		*save_ptr = s;
-	return token;
+    if (*s != '\0') {
+        *s = '\0';
+        *save_ptr = s + 1;
+    } else
+        *save_ptr = s;
+    return token;
 }
 
 /* DST의 SIZE 바이트를 VALUE로 설정합니다. */

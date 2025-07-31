@@ -3,7 +3,21 @@
 
 #include "filesys/off_t.h"
 
+#define FDT_CNT 512
+
 struct inode;
+enum fd_type {
+    FD_STDIN,
+    FD_STDOUT,
+    FD_FILE,
+    FD_DIR,
+};
+
+struct file_descriptor {
+    int fd;                     /* 파일 디스크립터 번호 */
+    enum fd_type type;          /* 파일 디스크립터 종류 */
+    struct file *file;          /* FD_FILE 일때 사용 */
+};
 
 /* Opening and closing files. */
 struct file *file_open (struct inode *);

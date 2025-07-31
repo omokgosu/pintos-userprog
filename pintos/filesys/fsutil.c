@@ -11,7 +11,7 @@
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
 
-/* List files in the root directory. */
+/* 루트 디렉토리의 파일들을 나열 */
 void
 fsutil_ls (char **argv UNUSED) {
 	struct dir *dir;
@@ -26,8 +26,8 @@ fsutil_ls (char **argv UNUSED) {
 	printf ("End of listing.\n");
 }
 
-/* Prints the contents of file ARGV[1] to the system console as
- * hex and ASCII. */
+/* 파일 ARGV[1]의 내용을 시스템 콘솔에
+ * 16진수와 ASCII로 출력 */
 void
 fsutil_cat (char **argv) {
 	const char *file_name = argv[1];
@@ -52,7 +52,7 @@ fsutil_cat (char **argv) {
 	file_close (file);
 }
 
-/* Deletes file ARGV[1]. */
+/* 파일 ARGV[1]을 삭제 */
 void
 fsutil_rm (char **argv) {
 	const char *file_name = argv[1];
@@ -62,18 +62,17 @@ fsutil_rm (char **argv) {
 		PANIC ("%s: delete failed\n", file_name);
 }
 
-/* Copies from the "scratch" disk, hdc or hd1:0 to file ARGV[1]
- * in the file system.
+/* "scratch" 디스크(hdc 또는 hd1:0)에서 파일시스템의
+ * 파일 ARGV[1]로 복사
  *
- * The current sector on the scratch disk must begin with the
- * string "PUT\0" followed by a 32-bit little-endian integer
- * indicating the file size in bytes.  Subsequent sectors hold
- * the file content.
+ * scratch 디스크의 현재 섹터는 "PUT\0" 문자열로 시작하고
+ * 그 다음에 파일 크기를 바이트 단위로 나타내는 32비트 리틀 엔디안 정수가 옴
+ * 이후 섹터들은 파일 내용을 담고 있음
  *
- * The first call to this function will read starting at the
- * beginning of the scratch disk.  Later calls advance across the
- * disk.  This disk position is independent of that used for
- * fsutil_get(), so all `put's should precede all `get's. */
+ * 이 함수의 첫 번째 호출은 scratch 디스크의 시작부터 읽기 시작
+ * 이후 호출들은 디스크를 가로질러 진행됨
+ * 이 디스크 위치는 fsutil_get()에서 사용하는 것과 독립적이므로
+ * 모든 'put'은 모든 'get'보다 먼저 와야 함 */
 void
 fsutil_put (char **argv) {
 	static disk_sector_t sector = 0;
@@ -86,17 +85,17 @@ fsutil_put (char **argv) {
 
 	printf ("Putting '%s' into the file system...\n", file_name);
 
-	/* Allocate buffer. */
+	/* 버퍼 할당 */
 	buffer = malloc (DISK_SECTOR_SIZE);
 	if (buffer == NULL)
 		PANIC ("couldn't allocate buffer");
 
-	/* Open source disk and read file size. */
+	/* 소스 디스크를 열고 파일 크기를 읽음 */
 	src = disk_get (1, 0);
 	if (src == NULL)
 		PANIC ("couldn't open source disk (hdc or hd1:0)");
 
-	/* Read file size. */
+	/* 파일 크기 읽기 */
 	disk_read (src, sector++, buffer);
 	if (memcmp (buffer, "PUT", 4))
 		PANIC ("%s: missing PUT signature on scratch disk", file_name);
@@ -104,14 +103,14 @@ fsutil_put (char **argv) {
 	if (size < 0)
 		PANIC ("%s: invalid file size %d", file_name, size);
 
-	/* Create destination file. */
+	/* 대상 파일 생성 */
 	if (!filesys_create (file_name, size))
 		PANIC ("%s: create failed", file_name);
 	dst = filesys_open (file_name);
 	if (dst == NULL)
 		PANIC ("%s: open failed", file_name);
 
-	/* Do copy. */
+	/* 복사 수행 */
 	while (size > 0) {
 		int chunk_size = size > DISK_SECTOR_SIZE ? DISK_SECTOR_SIZE : size;
 		disk_read (src, sector++, buffer);
@@ -121,22 +120,21 @@ fsutil_put (char **argv) {
 		size -= chunk_size;
 	}
 
-	/* Finish up. */
+	/* 마무리 */
 	file_close (dst);
 	free (buffer);
 }
 
-/* Copies file FILE_NAME from the file system to the scratch disk.
+/* 파일시스템에서 파일 FILE_NAME을 scratch 디스크로 복사
  *
- * The current sector on the scratch disk will receive "GET\0"
- * followed by the file's size in bytes as a 32-bit,
- * little-endian integer.  Subsequent sectors receive the file's
- * data.
+ * scratch 디스크의 현재 섹터는 "GET\0"을 받고
+ * 그 다음에 파일 크기를 32비트 리틀 엔디안 정수로 바이트 단위로 받음
+ * 이후 섹터들은 파일의 데이터를 받음
  *
- * The first call to this function will write starting at the
- * beginning of the scratch disk.  Later calls advance across the
- * disk.  This disk position is independent of that used for
- * fsutil_put(), so all `put's should precede all `get's. */
+ * 이 함수의 첫 번째 호출은 scratch 디스크의 시작부터 쓰기 시작
+ * 이후 호출들은 디스크를 가로질러 진행됨
+ * 이 디스크 위치는 fsutil_put()에서 사용하는 것과 독립적이므로
+ * 모든 'put'은 모든 'get'보다 먼저 와야 함 */
 void
 fsutil_get (char **argv) {
 	static disk_sector_t sector = 0;
@@ -149,29 +147,29 @@ fsutil_get (char **argv) {
 
 	printf ("Getting '%s' from the file system...\n", file_name);
 
-	/* Allocate buffer. */
+	/* 버퍼 할당 */
 	buffer = malloc (DISK_SECTOR_SIZE);
 	if (buffer == NULL)
 		PANIC ("couldn't allocate buffer");
 
-	/* Open source file. */
+	/* 소스 파일 열기 */
 	src = filesys_open (file_name);
 	if (src == NULL)
 		PANIC ("%s: open failed", file_name);
 	size = file_length (src);
 
-	/* Open target disk. */
+	/* 대상 디스크 열기 */
 	dst = disk_get (1, 0);
 	if (dst == NULL)
 		PANIC ("couldn't open target disk (hdc or hd1:0)");
 
-	/* Write size to sector 0. */
+	/* 섹터 0에 크기 쓰기 */
 	memset (buffer, 0, DISK_SECTOR_SIZE);
 	memcpy (buffer, "GET", 4);
 	((int32_t *) buffer)[1] = size;
 	disk_write (dst, sector++, buffer);
 
-	/* Do copy. */
+	/* 복사 수행 */
 	while (size > 0) {
 		int chunk_size = size > DISK_SECTOR_SIZE ? DISK_SECTOR_SIZE : size;
 		if (sector >= disk_size (dst))
@@ -183,7 +181,7 @@ fsutil_get (char **argv) {
 		size -= chunk_size;
 	}
 
-	/* Finish up. */
+	/* 마무리 */
 	file_close (src);
 	free (buffer);
 }
